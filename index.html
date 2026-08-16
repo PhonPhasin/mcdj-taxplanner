@@ -11,8 +11,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
     <!-- Babel for JSX -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js" crossorigin="anonymous"></script>
-    <!-- html2pdf for PDF/Image Export (มี html2canvas อยู่ข้างใน) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
+    <!-- ถอด html2pdf ออก และใช้ html2canvas โดยตรงเพื่อการ Screenshot ที่สมบูรณ์แบบ -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" crossorigin="anonymous"></script>
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -856,9 +856,6 @@
                 { label: t.analysisGroupLifeHealth, max: 100000, remaining: Math.max(0, 100000 - (afterDeductions.lifeInsurance + afterDeductions.healthInsurance)) },
                 { label: t.analysisSelfHealth, max: 25000, remaining: Math.max(0, 25000 - afterDeductions.healthInsurance) },
                 { label: t.analysisGroupRetirement, max: 500000, remaining: Math.max(0, 500000 - afterCalc.sumRetirementRaw) },
-                { label: t.analysisPVD, max: beforeCalc.maxPVD, remaining: Math.max(0, beforeCalc.maxPVD - afterDeductions.providentFund) },
-                { label: t.analysisRMF, max: beforeCalc.maxRMF, remaining: Math.max(0, beforeCalc.maxRMF - afterDeductions.rmf) },
-                { label: t.analysisPension, max: beforeCalc.maxPension, remaining: Math.max(0, beforeCalc.maxPension - afterDeductions.pension) },
                 { label: t.analysisThaiESG, max: Math.min(totalIncome * 0.30, 300000), remaining: Math.max(0, Math.min(totalIncome * 0.30, 300000) - afterDeductions.thaiesg) },
                 { label: t.analysisThaiESGX, max: 50000, remaining: Math.max(0, 50000 - afterDeductions.thaiesgX) },
                 { label: t.analysisMortgage, max: 100000, remaining: Math.max(0, 100000 - afterDeductions.mortgage) },
@@ -866,19 +863,20 @@
                 { label: t.analysisSE, max: 100000, remaining: Math.max(0, 100000 - afterDeductions.socialEnterprise) },
                 { label: t.analysisArt, max: 100000, remaining: Math.max(0, 100000 - afterDeductions.artPurchase) },
                 { label: t.analysisSolar, max: 200000, remaining: Math.max(0, 200000 - afterDeductions.solarCell) },
-                { label: t.analysisEduDonation, max: afterCalc.capped.maxEduDonation, remaining: Math.max(0, afterCalc.capped.maxEduDonation - (afterDonations.eduSport * 2)) },
-                { label: t.analysisGeneralDonation, max: afterCalc.capped.maxGeneralDonation, remaining: Math.max(0, afterCalc.capped.maxGeneralDonation - afterDonations.general) },
             ];
             const analysisRows = rawAnalysisRows.filter(row => row.remaining > 0);
 
-            // ฟังก์ชันถ่ายภาพ (แกะใช้ html2canvas ตรงๆ เพื่อให้ภาพสวยเหมือนพรีวิวและวรรณยุกต์ไม่ลอย)
+            // ฟังก์ชันถ่ายภาพหน้าจอตรงๆ ด้วย html2canvas (Screenshot)
             const handlePrintPreviewImage = () => {
-                if(!window.html2pdf) return;
+                if(typeof html2canvas === 'undefined') {
+                    alert("กำลังโหลดไลบรารีถ่ายภาพ กรุณารอสักครู่แล้วลองใหม่ครับ");
+                    return;
+                }
                 
                 const element = document.getElementById('pdf-paper-content');
                 if(!element) return;
 
-                // 1. เก็บฟอนต์ดั้งเดิมไว้ (Prompt) และเปลี่ยนทั้งหน้าให้เป็น Tahoma ชั่วคราว
+                // 1. แอบเปลี่ยนฟอนต์เป็น Tahoma (เฉพาะส่วนที่จะถ่าย) เพื่อแก้สระลอย
                 const originalFontFamily = element.style.fontFamily;
                 element.style.fontFamily = "'Tahoma', 'Arial', sans-serif";
                 const allTextNodes = element.querySelectorAll('*');
@@ -889,37 +887,38 @@
                     node.style.fontFamily = "'Tahoma', 'Arial', sans-serif";
                 });
                 
-                // ปุ่มจะเป็นสถานะกดไม่ได้ชั่วคราว
+                // เปลี่ยนสถานะปุ่ม
                 const btn = document.getElementById('btn-download-pdf');
                 if(btn) {
                     btn.disabled = true;
-                    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Generating Image...';
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Capturing...';
                 }
 
-                // 2. ให้เวลาบราวเซอร์สลับฟอนต์นิดนึง แล้วค่อยแชะด้วย html2pdf (โหมด image)
+                // 2. สั่ง html2canvas ถ่าย Screenshot ตรงๆ เลย
                 setTimeout(() => {
-                    const opt = {
-                        margin:       0,
-                        filename:     'MCDJTaxPlanner_Summary.png',
-                        image:        { type: 'png', quality: 1 },
-                        html2canvas:  { 
-                            scale: 2, 
-                            useCORS: true,
-                            letterRendering: true, 
-                            windowWidth: 1122 
-                        }
-                    };
-
-                    window.html2pdf().set(opt).from(element).outputImg('img').then((imgElement) => {
-                        // 3. เมื่อได้รูปภาพ (img tag) มาแล้ว เราดึง src (base64) ไปดาวน์โหลด
+                    html2canvas(element, {
+                        scale: 2, // ถ่ายละเอียดขึ้น 2 เท่า
+                        useCORS: true, // ป้องกันปัญหาโหลดภาพจากที่อื่นไม่ได้
+                        backgroundColor: "#ffffff", // พื้นหลังสีขาว
+                        windowWidth: 1122, // บังคับให้ถ่ายที่ความกว้าง 1122px (ตามกรอบพรีวิวเป๊ะ)
+                        // เอา margin ออกเพื่อไม่ให้เกิดขอบขาวแปลกๆ
+                        x: 0,
+                        y: 0,
+                        scrollX: 0,
+                        scrollY: -window.scrollY // ป้องกันปัญหาภาพเลื่อนตอน Scroll ถ่าย
+                    }).then(canvas => {
+                        // 3. แปลงภาพใน Canvas เป็น URL (Base64)
+                        const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                        
+                        // 4. สั่งดาวน์โหลด
                         const link = document.createElement('a');
-                        link.download = 'MCDJTaxPlanner_Summary.png';
-                        link.href = imgElement.src;
+                        link.download = 'MCDJTaxPlanner_Summary.jpg';
+                        link.href = imgData;
                         document.body.appendChild(link);
                         link.click();
                         document.body.removeChild(link);
 
-                        // 4. คืนค่าฟอนต์เดิมให้หน้า Preview กลับมาเป็น Prompt สวยเหมือนเดิม
+                        // 5. คืนฟอนต์เดิมให้หน้าเว็บ
                         element.style.fontFamily = originalFontFamily;
                         allTextNodes.forEach(node => {
                             node.style.fontFamily = originalStyles.get(node) || '';
@@ -930,7 +929,8 @@
                             btn.innerHTML = `<i class="fas fa-image mr-2"></i> SAVE AS IMAGE`;
                         }
                     }).catch(err => {
-                        console.error("Image Export Error: ", err);
+                        console.error("Screenshot Error: ", err);
+                        // ถ้าพังก็ต้องคืนฟอนต์
                         element.style.fontFamily = originalFontFamily;
                         allTextNodes.forEach(node => {
                             node.style.fontFamily = originalStyles.get(node) || '';
@@ -940,7 +940,7 @@
                             btn.innerHTML = `<i class="fas fa-image mr-2"></i> SAVE AS IMAGE`;
                         }
                     });
-                }, 300);
+                }, 300); // หน่วงนิดนึงให้เปลี่ยนฟอนต์เสร็จ
             };
 
             const renderContent = () => {
