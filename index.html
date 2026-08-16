@@ -11,7 +11,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
     <!-- Babel for JSX -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js" crossorigin="anonymous"></script>
-    <!-- html2pdf for PDF Export -->
+    <!-- html2pdf for PDF/Image Export (มี html2canvas อยู่ข้างใน) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -40,7 +40,7 @@
         }
         
         /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
@@ -75,7 +75,7 @@
             align-items: center;
         }
 
-        /* ตัวกระดาษ A4 แนวนอน (1122px) ที่โดนบังคับขนาดให้แน่นอน */
+        /* ตัวกระดาษ (ความกว้าง 1122px เสมอ เพื่อให้การแคปภาพสมบูรณ์และไม่มีการบีบ) */
         .pdf-paper {
             width: 1122px;
             min-height: 794px;
@@ -84,7 +84,7 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.5);
             /* ย่อส่วนเพื่อให้เห็นในจอเล็กได้ แต่ขนาดจริงเวลาแคปภาพจะอิงจาก 1122px */
             transform-origin: top center;
-            /* แก้ปัญหาวรรณยุกต์ */
+            /* แก้ปัญหาวรรณยุกต์และทำให้ภาพคมชัด */
             -webkit-font-smoothing: antialiased;
             text-rendering: optimizeLegibility;
         }
@@ -94,6 +94,7 @@
         @media (max-width: 1024px) { .pdf-paper { transform: scale(0.75); margin-bottom: -25%; } }
         @media (max-width: 768px) { .pdf-paper { transform: scale(0.6); margin-bottom: -40%; } }
         @media (max-width: 480px) { .pdf-paper { transform: scale(0.35); margin-bottom: -65%; } }
+
     </style>
 </head>
 <body class="min-h-screen flex flex-col">
@@ -870,18 +871,14 @@
             ];
             const analysisRows = rawAnalysisRows.filter(row => row.remaining > 0);
 
-            // ฟังก์ชันถ่ายภาพและเซฟเป็นรูปภาพ (PNG)
+            // ฟังก์ชันถ่ายภาพ (แกะใช้ html2canvas ตรงๆ เพื่อให้ภาพสวยเหมือนพรีวิวและวรรณยุกต์ไม่ลอย)
             const handlePrintPreviewImage = () => {
-                // ตรวจสอบว่าไลบรารีโหลดเสร็จหรือยัง โดยเช็คจาก html2pdf ที่มี html2canvas ซ่อนอยู่ข้างใน
-                if(!window.html2pdf) {
-                    alert("System is still loading dependencies. Please try again.");
-                    return;
-                }
+                if(!window.html2pdf) return;
                 
                 const element = document.getElementById('pdf-paper-content');
                 if(!element) return;
 
-                // 1. เปลี่ยนฟอนต์เป็น Tahoma เฉพาะตอนถ่าย เพื่อกันสระลอย
+                // 1. เก็บฟอนต์ดั้งเดิมไว้ (Prompt) และเปลี่ยนทั้งหน้าให้เป็น Tahoma ชั่วคราว
                 const originalFontFamily = element.style.fontFamily;
                 element.style.fontFamily = "'Tahoma', 'Arial', sans-serif";
                 const allTextNodes = element.querySelectorAll('*');
@@ -899,33 +896,30 @@
                     btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Generating Image...';
                 }
 
-                // 2. ให้เวลาบราวเซอร์สลับฟอนต์นิดนึง แล้วค่อยแชะด้วย html2canvas โดยตรง
+                // 2. ให้เวลาบราวเซอร์สลับฟอนต์นิดนึง แล้วค่อยแชะด้วย html2pdf (โหมด image)
                 setTimeout(() => {
-                    // html2pdf.js มี html2pdf.Worker.prototype.html2canvas อยู่ข้างใต้ 
-                    // แต่เราสามารถเข้าถึงไลบรารีหลักคือ html2canvas ได้ตรงๆ (ถ้าถูกโหลดมาแบบ bundle)
-                    
-                    // เพื่อความชัวร์ที่สุดเวลาเราจะโหลดเป็นรูป เราจะใช้วิธีเรียกไลบรารี html2canvas (ที่มีอยู่ใน html2pdf bundle) 
-                    // แต่เนื่องจากมันถูกแพ็กมา เราจะใช้วิธีสั่งให้ html2pdf ประมวลผลแค่ถึงขั้นได้ canvas พอ
-                    
-                    window.html2pdf().set({
+                    const opt = {
                         margin:       0,
-                        filename:     'MCDJTaxPlanner_Summary.png', // เปลี่ยนเป็น png/jpeg ไม่มีผลกับ html2canvas โดยตรง
+                        filename:     'MCDJTaxPlanner_Summary.png',
+                        image:        { type: 'png', quality: 1 },
                         html2canvas:  { 
-                            scale: 2,  // ถ่ายภาพชัด 2 เท่า (เหมือน Retina display)
+                            scale: 2, 
                             useCORS: true,
                             letterRendering: true, 
-                            windowWidth: 1122
+                            windowWidth: 1122 
                         }
-                    }).from(element).outputImg('img').then((imgElement) => {
-                        // เมื่อ html2pdf แปลงเป็น tag <img> สำเร็จ เราจะดึง src (base64 data) ของมันมาเซฟ
+                    };
+
+                    window.html2pdf().set(opt).from(element).outputImg('img').then((imgElement) => {
+                        // 3. เมื่อได้รูปภาพ (img tag) มาแล้ว เราดึง src (base64) ไปดาวน์โหลด
                         const link = document.createElement('a');
-                        link.download = 'MCDJTaxPlanner_Summary.png'; // ไฟล์จะเป็น .png
+                        link.download = 'MCDJTaxPlanner_Summary.png';
                         link.href = imgElement.src;
                         document.body.appendChild(link);
                         link.click();
                         document.body.removeChild(link);
-                        
-                        // คืนค่าฟอนต์เดิม
+
+                        // 4. คืนค่าฟอนต์เดิมให้หน้า Preview กลับมาเป็น Prompt สวยเหมือนเดิม
                         element.style.fontFamily = originalFontFamily;
                         allTextNodes.forEach(node => {
                             node.style.fontFamily = originalStyles.get(node) || '';
@@ -933,7 +927,7 @@
                         
                         if(btn) {
                             btn.disabled = false;
-                            btn.innerHTML = `<i class="fas fa-image mr-2"></i> ${t.previewPDFBtn}`;
+                            btn.innerHTML = `<i class="fas fa-image mr-2"></i> SAVE AS IMAGE`;
                         }
                     }).catch(err => {
                         console.error("Image Export Error: ", err);
@@ -943,7 +937,7 @@
                         });
                         if(btn) {
                             btn.disabled = false;
-                            btn.innerHTML = `<i class="fas fa-image mr-2"></i> ${t.previewPDFBtn}`;
+                            btn.innerHTML = `<i class="fas fa-image mr-2"></i> SAVE AS IMAGE`;
                         }
                     });
                 }, 300);
@@ -951,18 +945,18 @@
 
             const renderContent = () => {
                 return (
-                    <div className="space-y-6 w-full">
+                    <div className="space-y-6 w-full overflow-hidden">
                         {/* 1. Hero Banner */}
-                        <div className="avoid-page-break w-full mb-6 bg-white">
-                            <div className="hero-gradient rounded-[2rem] p-10 md:p-14 text-white shadow-lg relative overflow-hidden flex flex-col justify-center min-h-[300px]">
-                                <div className="relative z-10 max-w-2xl">
-                                    <h1 className="text-4xl md:text-[4rem] font-medium text-white mb-4 leading-tight font-poppins tracking-tighter">{t.taxSavedTitle}</h1>
-                                    <p className="text-white/80 text-sm md:text-base font-light mb-8 max-w-md">{t.taxSavedDesc}</p>
+                        <div className="avoid-page-break w-full mb-6 bg-white overflow-hidden rounded-[2rem]">
+                            <div className="hero-gradient p-8 sm:p-10 md:p-14 text-white shadow-lg relative flex flex-col justify-center min-h-[250px] sm:min-h-[300px]">
+                                <div className="relative z-10 w-full max-w-2xl">
+                                    <h1 className="text-3xl sm:text-4xl md:text-[4rem] font-medium text-white mb-3 sm:mb-4 leading-tight font-poppins tracking-tighter">{t.taxSavedTitle}</h1>
+                                    <p className="text-white/80 text-xs sm:text-sm md:text-base font-light mb-6 sm:mb-8 max-w-md">{t.taxSavedDesc}</p>
                                     
-                                    <div className="inline-block bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-6 shadow-sm">
-                                        <div className="text-white/70 text-xs font-bold uppercase tracking-widest mb-1">{t.youWillSave}</div>
-                                        <div className="text-4xl md:text-[3.5rem] font-bold text-white tracking-tighter leading-none flex items-center">
-                                            <span className="text-2xl mr-2 text-white/50 font-light">฿</span> 
+                                    <div className="inline-block bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-4 sm:p-6 shadow-sm">
+                                        <div className="text-white/70 text-[10px] sm:text-xs font-bold uppercase tracking-widest mb-1">{t.youWillSave}</div>
+                                        <div className="text-3xl sm:text-4xl md:text-[3.5rem] font-bold text-white tracking-tighter leading-none flex items-center">
+                                            <span className="text-xl sm:text-2xl mr-2 text-white/50 font-light">฿</span> 
                                             {formatNumber(taxSaving)}
                                         </div>
                                     </div>
@@ -971,23 +965,23 @@
                         </div>
 
                         {/* 2. Active Incomes & FA */}
-                        <div className="grid grid-cols-2 gap-6 avoid-page-break mb-6 bg-white">
-                            <div className="bg-white p-6 sm:p-8 flex flex-col h-full rounded-[2rem] shadow-sm border border-gray-100">
-                                <h3 className="font-bold text-gray-900 text-lg mb-4 border-b border-gray-100 pb-3">{t.incomeSourcesTitle}</h3>
-                                <div className="space-y-3 flex-grow pr-2">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 avoid-page-break mb-6 w-full">
+                            <div className="bg-white p-5 sm:p-6 lg:p-8 flex flex-col h-full rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden">
+                                <h3 className="font-bold text-gray-900 text-base sm:text-lg mb-4 border-b border-gray-100 pb-3 truncate">{t.incomeSourcesTitle}</h3>
+                                <div className="space-y-3 flex-grow overflow-y-auto pr-2 custom-scrollbar">
                                     {activeIncomes.length > 0 ? activeIncomes.map((item, idx) => (
-                                        <div key={idx} className="flex justify-between items-center text-sm border-b border-gray-50 pb-2 last:border-0 w-full">
-                                            <span className="text-gray-600">{item.label.split(' ')[0]} {item.label.substring(item.label.indexOf(' ')+1)}</span>
-                                            <span className="font-inter font-medium text-gray-900">{formatNumber(item.value)}</span>
+                                        <div key={idx} className="flex justify-between items-center text-xs sm:text-sm border-b border-gray-50 pb-2 last:border-0 w-full">
+                                            <span className="text-gray-600 truncate mr-2">{item.label.split(' ')[0]} {item.label.substring(item.label.indexOf(' ')+1)}</span>
+                                            <span className="font-inter font-medium text-gray-900 shrink-0">{formatNumber(item.value)}</span>
                                         </div>
                                     )) : <div className="text-sm text-gray-400 italic text-center py-4">ไม่มีข้อมูลรายได้</div>}
                                 </div>
                             </div>
                             
-                            <div className={`bg-white p-6 sm:p-8 flex flex-col h-full rounded-[2rem] shadow-sm border border-gray-100 ${faRecommendation ? 'border-l-4 border-l-gray-900' : ''}`}>
-                                <h3 className="font-bold text-gray-900 text-lg mb-4 border-b border-gray-100 pb-3 flex items-center"><i className="fas fa-comment-dots text-[#D4FF00] mr-2 text-xl drop-shadow-sm"></i> {t.faRecommendationTitle}</h3>
+                            <div className={`bg-white p-5 sm:p-6 lg:p-8 flex flex-col h-full rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden ${faRecommendation ? 'border-l-4 border-l-gray-900' : ''}`}>
+                                <h3 className="font-bold text-gray-900 text-base sm:text-lg mb-4 border-b border-gray-100 pb-3 flex items-center truncate"><i className="fas fa-comment-dots text-[#D4FF00] mr-2 text-lg sm:text-xl drop-shadow-sm"></i> {t.faRecommendationTitle}</h3>
                                 {faRecommendation ? (
-                                    <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed bg-gray-50 p-4 rounded-xl border border-gray-100 flex-grow font-prompt w-full">{faRecommendation}</p>
+                                    <p className="text-gray-800 text-xs sm:text-sm whitespace-pre-wrap leading-relaxed bg-gray-50 p-3 sm:p-4 rounded-xl border border-gray-100 flex-grow font-prompt overflow-y-auto custom-scrollbar w-full">{faRecommendation}</p>
                                 ) : (
                                     <div className="flex-grow flex items-center justify-center text-gray-400 text-sm font-light italic w-full">ไม่มีคำแนะนำเพิ่มเติม</div>
                                 )}
@@ -995,84 +989,84 @@
                         </div>
 
                         {/* 3. 3 Columns Comparison */}
-                        <div className="grid grid-cols-3 gap-6 avoid-page-break mb-6 bg-white">
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 avoid-page-break mb-6 w-full">
                             {/* Income */}
-                            <div className="bg-white p-6 sm:p-8 flex flex-col rounded-[2rem] shadow-sm border border-gray-100">
-                                <div className="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
-                                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-700"><i className="fas fa-wallet"></i></div>
-                                    <h3 className="font-bold text-gray-900 text-lg">{t.incomeCardTitle}</h3>
+                            <div className="bg-white p-5 sm:p-6 lg:p-8 flex flex-col rounded-[2rem] shadow-sm border border-gray-100 overflow-hidden">
+                                <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6 border-b border-gray-100 pb-3 sm:pb-4">
+                                    <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-700 shrink-0"><i className="fas fa-wallet text-sm sm:text-base"></i></div>
+                                    <h3 className="font-bold text-gray-900 text-base sm:text-lg truncate">{t.incomeCardTitle}</h3>
                                 </div>
-                                <div className="space-y-4 flex-grow w-full">
-                                    <div className="flex justify-between items-center text-sm w-full"><span className="text-gray-500">{t.totalIncomeLabel}</span><span className="font-inter font-medium text-gray-900">{formatNumber(totalIncome)}</span></div>
-                                    <div className="flex justify-between items-center text-sm w-full"><span className="text-gray-500">{t.expensesLabel}</span><span className="font-inter font-medium text-red-500">- {formatNumber(totalExpenses)}</span></div>
-                                    <div className="pt-4 border-t border-gray-100 flex justify-between items-center w-full"><span className="text-xs font-bold text-gray-500 uppercase">{t.summaryAssessable}</span><span className="font-inter font-bold text-xl text-gray-900">{formatNumber(assessableIncome)}</span></div>
+                                <div className="space-y-3 sm:space-y-4 flex-grow w-full">
+                                    <div className="flex justify-between items-center text-xs sm:text-sm w-full"><span className="text-gray-500 truncate mr-2">{t.totalIncomeLabel}</span><span className="font-inter font-medium text-gray-900 shrink-0">{formatNumber(totalIncome)}</span></div>
+                                    <div className="flex justify-between items-center text-xs sm:text-sm w-full"><span className="text-gray-500 truncate mr-2">{t.expensesLabel}</span><span className="font-inter font-medium text-red-500 shrink-0">- {formatNumber(totalExpenses)}</span></div>
+                                    <div className="pt-3 sm:pt-4 border-t border-gray-100 flex flex-wrap justify-between items-center w-full gap-1"><span className="text-[10px] sm:text-xs font-bold text-gray-500 uppercase">{t.summaryAssessable}</span><span className="font-inter font-bold text-lg sm:text-xl text-gray-900">{formatNumber(assessableIncome)}</span></div>
                                 </div>
                             </div>
 
                             {/* Current */}
-                            <div className="bg-white p-6 sm:p-8 flex flex-col rounded-[2rem] shadow-sm border-t-4 border-t-gray-400 border-x border-b border-gray-100">
-                                <div className="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
-                                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-500"><i className="fas fa-chart-line"></i></div>
-                                    <h3 className="font-bold text-gray-700 text-lg">{t.currentCardTitle}</h3>
+                            <div className="bg-white p-5 sm:p-6 lg:p-8 flex flex-col rounded-[2rem] shadow-sm border-t-4 border-t-gray-400 border-x border-b border-gray-100 overflow-hidden">
+                                <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6 border-b border-gray-100 pb-3 sm:pb-4">
+                                    <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-500 shrink-0"><i className="fas fa-chart-line text-sm sm:text-base"></i></div>
+                                    <h3 className="font-bold text-gray-700 text-base sm:text-lg truncate">{t.currentCardTitle}</h3>
                                 </div>
-                                <div className="space-y-4 flex-grow w-full">
-                                    <div className="flex justify-between items-center text-sm w-full"><span className="text-gray-500">{t.summaryTotalDeductions}</span><span className="font-inter font-medium text-gray-900">- {formatNumber(beforeCalc.totalDeductions + beforeCalc.actualEduDonation + beforeCalc.actualGeneralDonation)}</span></div>
-                                    <div className="flex justify-between items-center text-sm w-full"><span className="text-gray-500">{t.summaryNetIncome}</span><span className="font-inter font-medium text-gray-900">{formatNumber(beforeCalc.finalNetIncome)}</span></div>
-                                    <div className="pt-4 border-t border-gray-100 flex justify-between items-end w-full"><span className="text-xs font-bold text-gray-500 uppercase">{t.currentTaxTotal}</span><span className="font-inter font-bold text-2xl text-gray-900">{formatNumber(beforeCalc.totalTax)}</span></div>
+                                <div className="space-y-3 sm:space-y-4 flex-grow w-full">
+                                    <div className="flex justify-between items-center text-xs sm:text-sm w-full"><span className="text-gray-500 truncate mr-2">{t.summaryTotalDeductions}</span><span className="font-inter font-medium text-gray-900 shrink-0">- {formatNumber(beforeCalc.totalDeductions + beforeCalc.actualEduDonation + beforeCalc.actualGeneralDonation)}</span></div>
+                                    <div className="flex justify-between items-center text-xs sm:text-sm w-full"><span className="text-gray-500 truncate mr-2">{t.summaryNetIncome}</span><span className="font-inter font-medium text-gray-900 shrink-0">{formatNumber(beforeCalc.finalNetIncome)}</span></div>
+                                    <div className="pt-3 sm:pt-4 border-t border-gray-100 flex flex-wrap justify-between items-end w-full gap-1"><span className="text-[10px] sm:text-xs font-bold text-gray-500 uppercase">{t.currentTaxTotal}</span><span className="font-inter font-bold text-xl sm:text-2xl text-gray-900">{formatNumber(beforeCalc.totalTax)}</span></div>
                                 </div>
-                                <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center text-xs w-full">
-                                    <span className="text-gray-500 uppercase">{t.withheldPaid}</span>
-                                    <span className="font-inter font-medium text-gray-900">{formatNumber(totalWithheldTax)}</span>
+                                <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-100 flex flex-wrap justify-between items-center text-[10px] sm:text-xs w-full gap-1">
+                                    <span className="text-gray-500 uppercase truncate">{t.withheldPaid}</span>
+                                    <span className="font-inter font-medium text-gray-900 shrink-0">{formatNumber(totalWithheldTax)}</span>
                                 </div>
-                                <div className={`mt-3 flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-bold text-center w-full ${beforeCalc.taxPayableOrRefundable > 0 ? 'bg-red-50 text-red-600 border-red-200' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>
-                                    <span className="uppercase tracking-widest text-[9px] mb-1 opacity-80">{t.statusCurrent}</span>
-                                    <span>{beforeCalc.taxPayableOrRefundable > 0 ? t.payMore + ' ' : t.getRefund + ' '} <span className="font-inter text-sm">{formatNumber(Math.abs(beforeCalc.taxPayableOrRefundable))}</span></span>
+                                <div className={`mt-3 flex flex-col items-center justify-center p-2 sm:p-3 rounded-xl border text-[10px] sm:text-xs font-bold text-center w-full ${beforeCalc.taxPayableOrRefundable > 0 ? 'bg-red-50 text-red-600 border-red-200' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>
+                                    <span className="uppercase tracking-widest text-[8px] sm:text-[9px] mb-1 opacity-80">{t.statusCurrent}</span>
+                                    <span className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2">{beforeCalc.taxPayableOrRefundable > 0 ? t.payMore : t.getRefund} <span className="font-inter text-xs sm:text-sm">{formatNumber(Math.abs(beforeCalc.taxPayableOrRefundable))}</span></span>
                                 </div>
                             </div>
 
                             {/* Plan */}
-                            <div className="bg-[#111111] p-6 sm:p-8 flex flex-col rounded-[2rem] shadow-md border-t-4 border-t-[#D4FF00]">
-                                <div className="flex items-center gap-3 mb-6 border-b border-gray-800 pb-4">
-                                    <div className="w-10 h-10 bg-[#D4FF00]/10 rounded-full flex items-center justify-center text-[#D4FF00]"><i className="fas fa-rocket"></i></div>
-                                    <h3 className="font-bold text-white text-lg">{t.planCardTitle}</h3>
+                            <div className="bg-[#111111] p-5 sm:p-6 lg:p-8 flex flex-col rounded-[2rem] shadow-md border-t-4 border-t-[#D4FF00] overflow-hidden">
+                                <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6 border-b border-gray-800 pb-3 sm:pb-4">
+                                    <div className="w-8 h-8 sm:w-10 sm:h-10 bg-[#D4FF00]/10 rounded-full flex items-center justify-center text-[#D4FF00] shrink-0"><i className="fas fa-rocket text-sm sm:text-base"></i></div>
+                                    <h3 className="font-bold text-white text-base sm:text-lg truncate">{t.planCardTitle}</h3>
                                 </div>
-                                <div className="space-y-4 flex-grow w-full">
-                                    <div className="flex justify-between items-center text-sm w-full"><span className="text-gray-400">{t.summaryTotalDeductions}</span><span className="font-inter font-medium text-white">- {formatNumber(afterCalc.totalDeductions + afterCalc.actualEduDonation + afterCalc.actualGeneralDonation)}</span></div>
-                                    <div className="flex justify-between items-center text-sm w-full"><span className="text-gray-400">{t.summaryNetIncome}</span><span className="font-inter font-medium text-white">{formatNumber(afterCalc.finalNetIncome)}</span></div>
-                                    <div className="pt-4 border-t border-gray-800 flex justify-between items-end w-full"><span className="text-xs font-bold text-gray-400 uppercase">{t.planTaxTotal}</span><span className="font-inter font-bold text-2xl text-[#D4FF00]">{formatNumber(afterCalc.totalTax)}</span></div>
+                                <div className="space-y-3 sm:space-y-4 flex-grow w-full">
+                                    <div className="flex justify-between items-center text-xs sm:text-sm w-full"><span className="text-gray-400 truncate mr-2">{t.summaryTotalDeductions}</span><span className="font-inter font-medium text-white shrink-0">- {formatNumber(afterCalc.totalDeductions + afterCalc.actualEduDonation + afterCalc.actualGeneralDonation)}</span></div>
+                                    <div className="flex justify-between items-center text-xs sm:text-sm w-full"><span className="text-gray-400 truncate mr-2">{t.summaryNetIncome}</span><span className="font-inter font-medium text-white shrink-0">{formatNumber(afterCalc.finalNetIncome)}</span></div>
+                                    <div className="pt-3 sm:pt-4 border-t border-gray-800 flex flex-wrap justify-between items-end w-full gap-1"><span className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase">{t.planTaxTotal}</span><span className="font-inter font-bold text-xl sm:text-2xl text-[#D4FF00]">{formatNumber(afterCalc.totalTax)}</span></div>
                                 </div>
-                                <div className="mt-4 pt-4 border-t border-gray-800 flex justify-between items-center text-xs w-full">
-                                    <span className="text-gray-400 uppercase">{t.withheldPaid}</span>
-                                    <span className="font-inter font-medium text-white">{formatNumber(totalWithheldTax)}</span>
+                                <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-800 flex flex-wrap justify-between items-center text-[10px] sm:text-xs w-full gap-1">
+                                    <span className="text-gray-400 uppercase truncate">{t.withheldPaid}</span>
+                                    <span className="font-inter font-medium text-white shrink-0">{formatNumber(totalWithheldTax)}</span>
                                 </div>
-                                <div className={`mt-3 flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-bold text-center w-full ${afterCalc.taxPayableOrRefundable > 0 ? 'bg-red-50 text-red-600 border-red-200' : 'bg-[#1a1a1a] text-[#D4FF00] border border-[#D4FF00]/50 shadow-[0_0_10px_rgba(212,255,0,0.15)]'}`}>
-                                    <span className="uppercase tracking-widest text-[9px] mb-1 opacity-70">{t.statusPlan}</span>
-                                    <span>{afterCalc.taxPayableOrRefundable > 0 ? t.payMore + ' ' : t.getRefund + ' '} <span className="font-inter text-sm">{formatNumber(Math.abs(afterCalc.taxPayableOrRefundable))}</span></span>
+                                <div className={`mt-3 flex flex-col items-center justify-center p-2 sm:p-3 rounded-xl border text-[10px] sm:text-xs font-bold text-center w-full ${afterCalc.taxPayableOrRefundable > 0 ? 'bg-red-50 text-red-600 border-red-200' : 'bg-[#1a1a1a] text-[#D4FF00] border border-[#D4FF00]/50 shadow-[0_0_10px_rgba(212,255,0,0.15)]'}`}>
+                                    <span className="uppercase tracking-widest text-[8px] sm:text-[9px] mb-1 opacity-70">{t.statusPlan}</span>
+                                    <span className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2">{afterCalc.taxPayableOrRefundable > 0 ? t.payMore : t.getRefund} <span className="font-inter text-xs sm:text-sm">{formatNumber(Math.abs(afterCalc.taxPayableOrRefundable))}</span></span>
                                 </div>
                             </div>
                         </div>
 
                         {/* 4. Full 8-tier Tax Brackets Table */}
-                        <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-sm border border-gray-100 avoid-page-break w-full mb-6">
-                            <h3 className="font-medium text-gray-900 text-lg mb-6 border-b border-gray-100 pb-3 flex items-center font-poppins">
+                        <div className="bg-white p-5 sm:p-6 lg:p-8 rounded-[2rem] shadow-sm border border-gray-100 avoid-page-break w-full overflow-hidden mb-6">
+                            <h3 className="font-medium text-gray-900 text-base sm:text-lg mb-4 sm:mb-6 border-b border-gray-100 pb-3 flex items-center font-poppins truncate">
                                 <i className="fas fa-layer-group text-gray-900 mr-2"></i> {t.taxBracketsHitTitle}
                             </h3>
                             
                             {highestBeforeIdx > highestAfterIdx && (
-                                <div className="mb-6 bg-gray-100 text-gray-700 py-3 px-4 rounded-xl text-center text-sm font-medium border border-gray-200 flex items-center justify-center font-prompt w-fit mx-auto">
-                                    <i className="fas fa-level-down-alt mr-2"></i> 
+                                <div className="mb-4 sm:mb-6 bg-gray-100 text-gray-700 py-2 sm:py-3 px-3 sm:px-4 rounded-xl text-center text-xs sm:text-sm font-medium border border-gray-200 flex flex-wrap items-center justify-center font-prompt w-fit mx-auto gap-1">
+                                    <i className="fas fa-level-down-alt mr-1 sm:mr-2"></i> 
                                     {t.bracketDownMsg} {beforeCalc.bracketTaxes[highestBeforeIdx].rate * 100}% เป็น {afterCalc.bracketTaxes[highestAfterIdx].rate * 100}%
                                 </div>
                             )}
 
-                            <div className="w-full">
-                                <table className="w-full text-center text-sm font-inter">
+                            <div className="w-full overflow-x-auto custom-scrollbar pb-2">
+                                <table className="w-full text-center text-xs sm:text-sm font-inter min-w-[500px]">
                                     <thead>
-                                        <tr className="border-b border-gray-200 text-gray-500 text-xs uppercase tracking-wider font-semibold">
-                                            <th className="text-left py-3 px-2 w-[40%]">{t.netIncomeStep}</th>
-                                            <th className="py-3 px-2 w-[20%]">{t.taxRate}</th>
-                                            <th className="text-right py-3 px-2 w-[20%]">{t.taxBefore}</th>
-                                            <th className="text-right py-3 px-2 w-[20%] text-gray-900">{t.taxAfter}</th>
+                                        <tr className="border-b border-gray-200 text-gray-500 text-[9px] sm:text-xs uppercase tracking-wider font-semibold">
+                                            <th className="text-left py-2 sm:py-3 px-1 sm:px-2 w-[35%] sm:w-[40%]">{t.netIncomeStep}</th>
+                                            <th className="py-2 sm:py-3 px-1 sm:px-2 w-[15%] sm:w-[20%]">{t.taxRate}</th>
+                                            <th className="text-right py-2 sm:py-3 px-1 sm:px-2 w-[25%] sm:w-[20%]">{t.taxBefore}</th>
+                                            <th className="text-right py-2 sm:py-3 px-1 sm:px-2 w-[25%] sm:w-[20%] text-gray-900">{t.taxAfter}</th>
                                         </tr>
                                     </thead>
                                     <tbody className="space-y-1">
@@ -1085,16 +1079,16 @@
                                             
                                             return (
                                                 <tr key={i} className={`border-b border-gray-50 ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50 transition-colors'}`}>
-                                                    <td className={`text-left py-3 px-2 tracking-tight ${isActive ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
+                                                    <td className={`text-left py-2 sm:py-3 px-1 sm:px-2 tracking-tight ${isActive ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
                                                         {rangeText}
                                                     </td>
-                                                    <td className={`py-3 px-2 font-medium ${isActive ? 'text-gray-900' : 'text-gray-400'}`}>
+                                                    <td className={`py-2 sm:py-3 px-1 sm:px-2 font-medium ${isActive ? 'text-gray-900' : 'text-gray-400'}`}>
                                                         {beforeBracket.rate === 0 ? t.exempt : `${beforeBracket.rate * 100}%`}
                                                     </td>
-                                                    <td className={`text-right py-3 px-2 ${beforeBracket.tax > 0 ? 'text-gray-600 font-medium' : 'text-gray-400'}`}>
+                                                    <td className={`text-right py-2 sm:py-3 px-1 sm:px-2 ${beforeBracket.tax > 0 ? 'text-gray-600 font-medium' : 'text-gray-400'}`}>
                                                         {formatNumber(beforeBracket.tax)}
                                                     </td>
-                                                    <td className={`text-right py-3 px-2 ${afterBracket.tax > 0 ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
+                                                    <td className={`text-right py-2 sm:py-3 px-1 sm:px-2 ${afterBracket.tax > 0 ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
                                                         {formatNumber(afterBracket.tax)}
                                                     </td>
                                                 </tr>
@@ -1106,16 +1100,16 @@
                         </div>
 
                         {/* 5. Planned Deductions Detail (4 Columns) */}
-                        <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-sm border border-gray-100 avoid-page-break w-full mb-6">
-                            <h3 className="font-bold text-gray-900 text-lg mb-6 border-b border-gray-100 pb-3">{t.plannedDeductionsTitle}</h3>
-                            <div className="w-full">
-                                <table className="w-full text-sm font-inter">
+                        <div className="bg-white p-5 sm:p-6 lg:p-8 rounded-[2rem] shadow-sm border border-gray-100 avoid-page-break w-full overflow-hidden mb-6">
+                            <h3 className="font-bold text-gray-900 text-base sm:text-lg mb-4 sm:mb-6 border-b border-gray-100 pb-3 truncate">{t.plannedDeductionsTitle}</h3>
+                            <div className="w-full overflow-x-auto custom-scrollbar pb-2">
+                                <table className="w-full text-xs sm:text-sm font-inter min-w-[500px]">
                                     <thead>
-                                        <tr className="border-b border-gray-200 text-gray-500 text-[10px] uppercase tracking-widest bg-white">
-                                            <th className="text-left py-3 px-2 font-semibold w-[40%]">{t.summaryItemLabel}</th>
-                                            <th className="text-right py-3 px-2 font-semibold w-[20%]">{t.beforePlan}</th>
-                                            <th className="text-right py-3 px-2 text-gray-900 font-semibold w-[20%]">{t.targetPlan}</th>
-                                            <th className="text-right py-3 px-2 font-semibold w-[20%]">{t.rightsMax}</th>
+                                        <tr className="border-b border-gray-200 text-gray-500 text-[9px] sm:text-[10px] uppercase tracking-widest bg-white">
+                                            <th className="text-left py-2 sm:py-3 px-1 sm:px-2 font-semibold w-[40%]">{t.summaryItemLabel}</th>
+                                            <th className="text-right py-2 sm:py-3 px-1 sm:px-2 font-semibold w-[20%]">{t.beforePlan}</th>
+                                            <th className="text-right py-2 sm:py-3 px-1 sm:px-2 text-gray-900 font-semibold w-[20%]">{t.targetPlan}</th>
+                                            <th className="text-right py-2 sm:py-3 px-1 sm:px-2 font-semibold w-[20%]">{t.rightsMax}</th>
                                         </tr>
                                     </thead>
                                     <tbody className="space-y-1">
@@ -1123,14 +1117,14 @@
                                             const maxText = item.max === Infinity ? '-' : formatNumber(item.max);
                                             return (
                                                 <tr key={idx} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                                                    <td className="py-3 px-2 text-gray-800 font-prompt pr-2" title={item.label}>{item.label}</td>
-                                                    <td className="text-right py-3 px-2 text-gray-500">{formatNumber(item.before)}</td>
-                                                    <td className="text-right py-3 px-2 text-gray-900 font-medium">{formatNumber(item.value)}</td>
-                                                    <td className="text-right py-3 px-2 text-gray-400 text-xs">{maxText}</td>
+                                                    <td className="py-2 sm:py-3 px-1 sm:px-2 text-gray-800 font-prompt pr-2 truncate max-w-[200px] sm:max-w-none" title={item.label}>{item.label}</td>
+                                                    <td className="text-right py-2 sm:py-3 px-1 sm:px-2 text-gray-500">{formatNumber(item.before)}</td>
+                                                    <td className="text-right py-2 sm:py-3 px-1 sm:px-2 text-gray-900 font-medium">{formatNumber(item.value)}</td>
+                                                    <td className="text-right py-2 sm:py-3 px-1 sm:px-2 text-gray-400 text-[10px] sm:text-xs">{maxText}</td>
                                                 </tr>
                                             );
                                         }) : (
-                                            <tr><td colSpan="4" className="text-sm text-gray-400 italic text-center py-4">ไม่มีข้อมูลการวางแผนลดหย่อน</td></tr>
+                                            <tr><td colSpan="4" className="text-xs sm:text-sm text-gray-400 italic text-center py-4">ไม่มีข้อมูลการวางแผนลดหย่อน</td></tr>
                                         )}
                                     </tbody>
                                 </table>
@@ -1139,27 +1133,27 @@
 
                         {/* 6. Unused & Available Deductions Table */}
                         {analysisRows.length > 0 && (
-                            <div className="bg-white p-6 sm:p-10 rounded-[2rem] shadow-sm border border-[#D4FF00]/30 relative avoid-page-break w-full mb-6">
-                                <div className="absolute top-0 left-0 w-2 h-full bg-[#D4FF00] rounded-l-[2rem]"></div>
-                                <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center pl-2 font-prompt">
-                                    <i className="fas fa-chart-pie text-[#A3C400] mr-3"></i> {t.rightsAnalysis}
+                            <div className="bg-white p-5 sm:p-6 lg:p-10 rounded-[2rem] shadow-sm border border-[#D4FF00]/30 relative avoid-page-break w-full overflow-hidden mb-6">
+                                <div className="absolute top-0 left-0 w-1 sm:w-2 h-full bg-[#D4FF00] rounded-l-[2rem]"></div>
+                                <h3 className="text-base sm:text-lg font-bold text-gray-900 mb-4 sm:mb-6 flex items-center pl-2 font-prompt truncate">
+                                    <i className="fas fa-chart-pie text-[#A3C400] mr-2 sm:mr-3"></i> {t.rightsAnalysis}
                                 </h3>
-                                <div className="w-full">
-                                    <table className="w-full text-sm font-inter">
+                                <div className="w-full overflow-x-auto custom-scrollbar pb-2">
+                                    <table className="w-full text-xs sm:text-sm font-inter min-w-[500px]">
                                         <thead>
-                                            <tr className="border-b border-gray-200 text-gray-500 text-[10px] uppercase tracking-widest bg-gray-50">
-                                                <th className="text-left py-3 px-4 font-semibold rounded-tl-xl w-[50%]">{t.rightsItem}</th>
-                                                <th className="text-right py-3 px-4 font-semibold w-[25%]">{t.rightsMax}</th>
-                                                <th className="text-right py-3 px-4 text-gray-900 font-semibold w-[25%] rounded-tr-xl">{t.rightsRemaining}</th>
+                                            <tr className="border-b border-gray-200 text-gray-500 text-[9px] sm:text-[10px] uppercase tracking-widest bg-gray-50">
+                                                <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-semibold rounded-tl-xl w-[50%]">{t.rightsItem}</th>
+                                                <th className="text-right py-2 sm:py-3 px-2 sm:px-4 font-semibold w-[25%]">{t.rightsMax}</th>
+                                                <th className="text-right py-2 sm:py-3 px-2 sm:px-4 text-gray-900 font-semibold w-[25%] rounded-tr-xl">{t.rightsRemaining}</th>
                                             </tr>
                                         </thead>
                                         <tbody className="space-y-1">
                                             {analysisRows.map((row, idx) => (
                                                 <tr key={idx} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                                                    <td className="py-3 px-4 text-gray-800 font-prompt">{row.label}</td>
-                                                    <td className="text-right py-3 px-4 text-gray-400 text-xs">{formatNumber(row.max)}</td>
-                                                    <td className="text-right py-3 px-4">
-                                                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#D4FF00]/10 text-[#7a9300] border border-[#D4FF00]/30 shadow-sm whitespace-nowrap">
+                                                    <td className="py-2 sm:py-3 px-2 sm:px-4 text-gray-800 font-prompt truncate max-w-[250px] sm:max-w-none" title={row.label}>{row.label}</td>
+                                                    <td className="text-right py-2 sm:py-3 px-2 sm:px-4 text-gray-400 text-[10px] sm:text-xs">{formatNumber(row.max)}</td>
+                                                    <td className="text-right py-2 sm:py-3 px-2 sm:px-4">
+                                                        <span className="px-2 sm:px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold bg-[#D4FF00]/10 text-[#7a9300] border border-[#D4FF00]/30 shadow-sm whitespace-nowrap">
                                                             + {formatNumber(row.remaining)}
                                                         </span>
                                                     </td>
@@ -1177,45 +1171,44 @@
             return (
                 <div className="animate-fade-in pb-20 relative">
                     
-                    {/* เราซ่อนเนื้อหาหลักที่จะแสดงบนเว็บเป็น Layout ธรรมดา */}
-                    <div className="space-y-6 w-full max-w-[1100px] mx-auto">
+                    {/* เนื้อหาหลักที่จะแสดงบนเว็บเป็น Layout ธรรมดา */}
+                    <div className="space-y-6 w-full max-w-[1100px] mx-auto overflow-hidden">
                         {renderContent()}
                     </div>
 
                     {/* ปุ่ม Navigation & Export */}
-                    <div className="flex justify-center items-center gap-4 pt-10">
-                        <button onClick={onPrev} className="bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 font-bold py-3 px-8 rounded-full transition-all flex items-center group text-sm shadow-sm">
+                    <div className="flex flex-col sm:flex-row justify-center items-center gap-3 sm:gap-4 pt-10">
+                        <button onClick={onPrev} className="w-full sm:w-auto bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 font-bold py-3 px-8 rounded-full transition-all flex items-center justify-center group text-sm shadow-sm">
                             <i className="fas fa-arrow-left mr-3 opacity-50 group-hover:-translate-x-1 transition-transform"></i> {t.backBtn}
                         </button>
                         
                         <button 
                             onClick={() => setShowPreview(true)}
-                            className="bg-gray-900 hover:bg-black text-white font-bold py-3 px-8 rounded-full transition-all flex items-center group text-sm shadow-sm"
+                            className="w-full sm:w-auto bg-gray-900 hover:bg-black text-white font-bold py-3 px-8 rounded-full transition-all flex items-center justify-center group text-sm shadow-sm"
                         >
-                            <i className="fas fa-file-pdf mr-3 text-[#D4FF00]"></i> {t.showPreviewBtn}
+                            <i className="fas fa-image mr-3 text-[#D4FF00]"></i> {t.showPreviewBtn}
                         </button>
                     </div>
 
-                    {/* Preview Modal: จำลองกระดาษ A4 แนวนอน (1122px) เป๊ะๆ */}
+                    {/* Preview Modal: จำลองกระดาษ (1122px) เป๊ะๆ */}
                     {showPreview && (
                         <div className="pdf-preview-container custom-scrollbar">
-                            <div className="w-full bg-[#111111] p-4 flex justify-between items-center sticky top-0 z-50">
-                                <div className="text-white font-bold font-poppins flex items-center">
-                                    <i className="fas fa-image text-[#D4FF00] mr-2"></i> Print Preview <span className="text-xs text-gray-400 font-prompt ml-3 font-normal">(ขนาดรูปภาพ 1122px)</span>
+                            <div className="w-full bg-[#111111] p-3 sm:p-4 flex flex-col sm:flex-row justify-between items-center sticky top-0 z-50 gap-3 sm:gap-0">
+                                <div className="text-white font-bold font-poppins flex items-center text-sm sm:text-base">
+                                    <i className="fas fa-image text-[#D4FF00] mr-2"></i> Print Preview <span className="text-[10px] sm:text-xs text-gray-400 font-prompt ml-2 sm:ml-3 font-normal">(ขนาดรูปภาพ 1122px)</span>
                                 </div>
-                                <div className="flex gap-3">
-                                    <button onClick={() => setShowPreview(false)} className="bg-gray-800 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-full text-xs transition-colors">
+                                <div className="flex gap-2 sm:gap-3 w-full sm:w-auto">
+                                    <button onClick={() => setShowPreview(false)} className="flex-1 sm:flex-none bg-gray-800 hover:bg-gray-700 text-white font-bold py-2 px-4 sm:px-6 rounded-full text-[10px] sm:text-xs transition-colors">
                                         {t.closePreviewBtn}
                                     </button>
-                                    {/* เปลี่ยน onClick เป็น handlePrintPreviewImage และไอคอน */}
-                                    <button id="btn-download-pdf" onClick={handlePrintPreviewImage} className="bg-[#D4FF00] hover:bg-[#bce600] text-black font-bold py-2 px-6 rounded-full text-xs transition-colors shadow-[0_0_15px_rgba(212,255,0,0.3)]">
-                                        <i className="fas fa-image mr-2"></i> {t.previewPDFBtn}
+                                    <button id="btn-download-pdf" onClick={handlePrintPreviewImage} className="flex-1 sm:flex-none bg-[#D4FF00] hover:bg-[#bce600] text-black font-bold py-2 px-4 sm:px-6 rounded-full text-[10px] sm:text-xs transition-colors shadow-[0_0_15px_rgba(212,255,0,0.3)]">
+                                        <i className="fas fa-image mr-1 sm:mr-2"></i> SAVE AS IMAGE
                                     </button>
                                 </div>
                             </div>
                             
-                            <div className="mt-8 mb-20 flex justify-center w-full">
-                                {/* กล่องกระดาษรูปภาพ */}
+                            <div className="mt-4 sm:mt-8 mb-10 sm:mb-20 flex justify-center w-full">
+                                {/* กล่องกระดาษ (1122px) */}
                                 <div id="pdf-paper-content" className="pdf-paper">
                                     {renderContent()}
                                 </div>
