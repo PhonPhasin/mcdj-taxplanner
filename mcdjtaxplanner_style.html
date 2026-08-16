@@ -11,7 +11,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
     <!-- Babel for JSX -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js" crossorigin="anonymous"></script>
-    <!-- html2pdf for PDF Export -->
+    <!-- html2pdf for PDF Export (มี html2canvas อยู่ข้างใน) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -75,7 +75,7 @@
             align-items: center;
         }
 
-        /* ตัวกระดาษ A4 แนวนอน (1122px) ที่โดนบังคับขนาดให้แน่นอน */
+        /* ตัวกระดาษ (ความกว้าง 1122px เสมอ เพื่อให้การแคปภาพสมบูรณ์และไม่มีการบีบ) */
         .pdf-paper {
             width: 1122px;
             min-height: 794px;
@@ -84,7 +84,7 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.5);
             /* ย่อส่วนเพื่อให้เห็นในจอเล็กได้ แต่ขนาดจริงเวลาแคปภาพจะอิงจาก 1122px */
             transform-origin: top center;
-            /* แก้ปัญหาวรรณยุกต์ */
+            /* แก้ปัญหาวรรณยุกต์และทำให้ภาพคมชัด */
             -webkit-font-smoothing: antialiased;
             text-rendering: optimizeLegibility;
         }
@@ -94,12 +94,14 @@
         @media (max-width: 1024px) { .pdf-paper { transform: scale(0.75); margin-bottom: -25%; } }
         @media (max-width: 768px) { .pdf-paper { transform: scale(0.6); margin-bottom: -40%; } }
         @media (max-width: 480px) { .pdf-paper { transform: scale(0.35); margin-bottom: -65%; } }
+
     </style>
 </head>
 <body class="min-h-screen flex flex-col">
     <div id="root" class="flex-grow flex flex-col"></div>
 
     <script type="text/babel">
+        /* STREAMING_CHUNK:Initializing React Setup... */
         const { useState, useEffect, useRef } = React;
 
         const translations = {
@@ -179,6 +181,7 @@
             return isNaN(parsed) ? 0 : parsed;
         };
 
+        /* STREAMING_CHUNK:Core Tax Logic... */
         const calculateTax = (netIncome) => {
             const brackets = [
                 { max: 150000, rate: 0, deduction: 0 },
@@ -386,6 +389,7 @@
             </div>
         );
 
+        /* STREAMING_CHUNK:Building Page 1: Income */
         const IncomePage = ({ incomes, setIncomes, expenses, setExpenses, withheldTaxes, setWithheldTaxes, onNext, t }) => {
             const handleIncomeChange = (type, value) => {
                 const numValue = parseNumber(value);
@@ -458,6 +462,7 @@
             );
         };
 
+        /* STREAMING_CHUNK:Building Page 2: Deductions */
         const DeductionsPage = ({ 
             incomes, expenses, withheldTaxes, 
             beforeDeductions, setBeforeDeductions, afterDeductions, setAfterDeductions, 
@@ -776,6 +781,7 @@
             );
         };
 
+        /* STREAMING_CHUNK:Building Page 3: Summary with PDF Export */
         const SummaryPage = ({ 
             incomes, expenses, withheldTaxes, 
             beforeDeductions, afterDeductions, 
@@ -870,18 +876,14 @@
             ];
             const analysisRows = rawAnalysisRows.filter(row => row.remaining > 0);
 
-            // ฟังก์ชันถ่ายภาพและเซฟเป็นรูปภาพ (PNG)
+            // ฟังก์ชันถ่ายภาพ (แกะใช้ html2canvas ตรงๆ เพื่อให้ภาพสวยเหมือนพรีวิว)
             const handlePrintPreviewImage = () => {
-                // ตรวจสอบว่าไลบรารีโหลดเสร็จหรือยัง โดยเช็คจาก html2pdf ที่มี html2canvas ซ่อนอยู่ข้างใน
-                if(!window.html2pdf) {
-                    alert("System is still loading dependencies. Please try again.");
-                    return;
-                }
+                if(!window.html2pdf) return;
                 
                 const element = document.getElementById('pdf-paper-content');
                 if(!element) return;
 
-                // 1. เปลี่ยนฟอนต์เป็น Tahoma เฉพาะตอนถ่าย เพื่อกันสระลอย
+                // 1. เก็บฟอนต์ดั้งเดิมไว้ (Prompt) และเปลี่ยนทั้งหน้าให้เป็น Tahoma ชั่วคราว
                 const originalFontFamily = element.style.fontFamily;
                 element.style.fontFamily = "'Tahoma', 'Arial', sans-serif";
                 const allTextNodes = element.querySelectorAll('*');
@@ -899,33 +901,30 @@
                     btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Generating Image...';
                 }
 
-                // 2. ให้เวลาบราวเซอร์สลับฟอนต์นิดนึง แล้วค่อยแชะด้วย html2canvas โดยตรง
+                // 2. ให้เวลาบราวเซอร์สลับฟอนต์นิดนึง แล้วค่อยแชะด้วย html2pdf (โหมด image)
                 setTimeout(() => {
-                    // html2pdf.js มี html2pdf.Worker.prototype.html2canvas อยู่ข้างใต้ 
-                    // แต่เราสามารถเข้าถึงไลบรารีหลักคือ html2canvas ได้ตรงๆ (ถ้าถูกโหลดมาแบบ bundle)
-                    
-                    // เพื่อความชัวร์ที่สุดเวลาเราจะโหลดเป็นรูป เราจะใช้วิธีเรียกไลบรารี html2canvas (ที่มีอยู่ใน html2pdf bundle) 
-                    // แต่เนื่องจากมันถูกแพ็กมา เราจะใช้วิธีสั่งให้ html2pdf ประมวลผลแค่ถึงขั้นได้ canvas พอ
-                    
-                    window.html2pdf().set({
+                    const opt = {
                         margin:       0,
-                        filename:     'MCDJTaxPlanner_Summary.png', // เปลี่ยนเป็น png/jpeg ไม่มีผลกับ html2canvas โดยตรง
+                        filename:     'MCDJTaxPlanner_Summary.png',
+                        image:        { type: 'png', quality: 1 },
                         html2canvas:  { 
-                            scale: 2,  // ถ่ายภาพชัด 2 เท่า (เหมือน Retina display)
+                            scale: 2, 
                             useCORS: true,
                             letterRendering: true, 
-                            windowWidth: 1122
+                            windowWidth: 1122 
                         }
-                    }).from(element).outputImg('img').then((imgElement) => {
-                        // เมื่อ html2pdf แปลงเป็น tag <img> สำเร็จ เราจะดึง src (base64 data) ของมันมาเซฟ
+                    };
+
+                    window.html2pdf().set(opt).from(element).outputImg('img').then((imgElement) => {
+                        // 3. เมื่อได้รูปภาพ (img tag) มาแล้ว เราดึง src (base64) ไปดาวน์โหลด
                         const link = document.createElement('a');
-                        link.download = 'MCDJTaxPlanner_Summary.png'; // ไฟล์จะเป็น .png
+                        link.download = 'MCDJTaxPlanner_Summary.png';
                         link.href = imgElement.src;
                         document.body.appendChild(link);
                         link.click();
                         document.body.removeChild(link);
-                        
-                        // คืนค่าฟอนต์เดิม
+
+                        // 4. คืนค่าฟอนต์เดิมให้หน้า Preview กลับมาเป็น Prompt สวยเหมือนเดิม
                         element.style.fontFamily = originalFontFamily;
                         allTextNodes.forEach(node => {
                             node.style.fontFamily = originalStyles.get(node) || '';
@@ -933,7 +932,7 @@
                         
                         if(btn) {
                             btn.disabled = false;
-                            btn.innerHTML = `<i class="fas fa-image mr-2"></i> ${t.previewPDFBtn}`;
+                            btn.innerHTML = `<i class="fas fa-image mr-2"></i> SAVE AS IMAGE`;
                         }
                     }).catch(err => {
                         console.error("Image Export Error: ", err);
@@ -943,7 +942,7 @@
                         });
                         if(btn) {
                             btn.disabled = false;
-                            btn.innerHTML = `<i class="fas fa-image mr-2"></i> ${t.previewPDFBtn}`;
+                            btn.innerHTML = `<i class="fas fa-image mr-2"></i> SAVE AS IMAGE`;
                         }
                     });
                 }, 300);
@@ -1192,7 +1191,7 @@
                             onClick={() => setShowPreview(true)}
                             className="bg-gray-900 hover:bg-black text-white font-bold py-3 px-8 rounded-full transition-all flex items-center group text-sm shadow-sm"
                         >
-                            <i className="fas fa-file-pdf mr-3 text-[#D4FF00]"></i> {t.showPreviewBtn}
+                            <i className="fas fa-image mr-3 text-[#D4FF00]"></i> {t.showPreviewBtn}
                         </button>
                     </div>
 
@@ -1207,15 +1206,14 @@
                                     <button onClick={() => setShowPreview(false)} className="bg-gray-800 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-full text-xs transition-colors">
                                         {t.closePreviewBtn}
                                     </button>
-                                    {/* เปลี่ยน onClick เป็น handlePrintPreviewImage และไอคอน */}
-                                    <button id="btn-download-pdf" onClick={handlePrintPreviewImage} className="bg-[#D4FF00] hover:bg-[#bce600] text-black font-bold py-2 px-6 rounded-full text-xs transition-colors shadow-[0_0_15px_rgba(212,255,0,0.3)]">
+                                    <button id="btn-download-pdf" onClick={handlePrintPreviewPdf} className="bg-[#D4FF00] hover:bg-[#bce600] text-black font-bold py-2 px-6 rounded-full text-xs transition-colors shadow-[0_0_15px_rgba(212,255,0,0.3)]">
                                         <i className="fas fa-image mr-2"></i> {t.previewPDFBtn}
                                     </button>
                                 </div>
                             </div>
                             
                             <div className="mt-8 mb-20 flex justify-center w-full">
-                                {/* กล่องกระดาษรูปภาพ */}
+                                {/* กล่องกระดาษ (1122px) */}
                                 <div id="pdf-paper-content" className="pdf-paper">
                                     {renderContent()}
                                 </div>
@@ -1226,6 +1224,7 @@
             );
         };
 
+        /* STREAMING_CHUNK:Building App Component */
         const App = () => {
             const [step, setStep] = useState(1);
             const [lang, setLang] = useState('TH');
