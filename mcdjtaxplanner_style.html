@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCDJTaxPlanner - W.Planner Style</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+    <!-- Babel for JSX -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js" crossorigin="anonymous"></script>
+    <!-- html2pdf for PDF Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&family=Prompt:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
+        
+        :root {
+            --neon-yellow: #D4FF00;
+            --bg-light: #F4F5F7;
+            --text-dark: #111111;
+        }
+
+        body {
+            font-family: 'Prompt', 'Poppins', sans-serif;
+            background-color: var(--bg-light);
+            color: var(--text-dark);
+            overflow-x: hidden;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* W.Planner Style Hero Gradient */
+        .hero-gradient {
+            background: linear-gradient(135deg, #2A0845 0%, #141E30 100%);
+        }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+
+        /* PDF Print Styles (Crucial for Clean Layout) */
+        .avoid-page-break {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+        }
+
+        /* 
+          สำหรับสร้าง Preview Mode แบบ "แผ่นกระดาษ" จริงๆ
+          ใช้ transform: scale ย่อส่วนให้พรีวิวดูพอดีกับจอ โดยที่ขนาดจริง (1122px) ไม่เพี้ยน
+        */
+        .pdf-preview-container {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 9999;
+            overflow-y: auto;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* ตัวกระดาษ A4 แนวนอน (1122px) ที่โดนบังคับขนาดให้แน่นอน */
+        .pdf-paper {
+            width: 1122px;
+            min-height: 794px;
+            background: white;
+            padding: 40px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            /* ย่อส่วนเพื่อให้เห็นในจอเล็กได้ แต่ขนาดจริงเวลาแคปภาพจะอิงจาก 1122px */
+            transform-origin: top center;
+            /* แก้ปัญหาวรรณยุกต์ */
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+        }
+
+        /* Responsive สำหรับย่อตัวกระดาษให้พอดีกับหน้าจอเมื่อเข้าพรีวิวโหมด */
+        @media (max-width: 1200px) { .pdf-paper { transform: scale(0.9); margin-bottom: -10%; } }
+        @media (max-width: 1024px) { .pdf-paper { transform: scale(0.75); margin-bottom: -25%; } }
+        @media (max-width: 768px) { .pdf-paper { transform: scale(0.6); margin-bottom: -40%; } }
+        @media (max-width: 480px) { .pdf-paper { transform: scale(0.35); margin-bottom: -65%; } }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+    <div id="root" class="flex-grow flex flex-col"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const translations = {
+            TH: {
+                appTitle: "MCDJTaxPlanner", step1: "1. รายได้", step2: "2. ลดหย่อน", step3: "3. สรุปผล",
+                incomeData: "Income Data", incomeDesc: "ระบุรายได้ตามมาตรา 40(1) - 40(8)",
+                inc1Title: "(1) เงินเดือน โบนัส", inc1Sub: "Salary, Bonus", inc1ExpenseNote: "รวม 40(1),(2) ไม่เกิน 100k",
+                inc2Title: "(2) ค่านายหน้า รับจ้าง", inc2Sub: "Commission",
+                inc3Title: "(3) ลิขสิทธิ์", inc3Sub: "Royalty",
+                inc4Title: "(4) ดอกเบี้ย เงินปันผล", inc4Sub: "Interest / Dividend",
+                inc5Title: "(5) ค่าเช่า", inc5Sub: "Rental",
+                inc6Title: "(6) วิชาชีพอิสระ", inc6Sub: "Profession",
+                inc7Title: "(7) รับเหมา", inc7Sub: "Contractor",
+                inc8Title: "(8) อื่นๆ", inc8Sub: "Others",
+                incomeLabel: "รายได้ทั้งปี (Income)", expenseLabel: "หักค่าใช้จ่าย", withheldLabel: "หัก ณ ที่จ่าย", netIncomeLabel: "เงินได้หลังหักค่าใช้จ่าย",
+                totalAssessableIncome: "Total Assessable Income", netAssessableIncomeLabel: "เงินได้พึงประเมินสุทธิ", totalIncomeLabel: "Total Income", expensesLabel: "Expenses", deductionsPlanBtn: "Deductions Plan",
+                
+                deductionsTitle: "Tax Deductions", deductionsDesc: "จำลองแผนการลดหย่อนภาษี", copyPlanBtn: "คัดลอกก่อน -> หลังแผน", currentPlanLabel: "ปัจจุบัน (Current)", targetPlanLabel: "เป้าหมาย (Plan)",
+                familyPersonalBadge: "Family & Personal",
+                deduc1: "1. ค่าลดหย่อนส่วนตัว", deduc1Limit: "60,000 บาท", deduc2: "2. ค่าลดหย่อนคู่สมรส", deduc2Limit: "สูงสุด 60,000 (ไม่มีรายได้)", deduc3: "3. ค่าลดหย่อนบุตร", deduc3Limit: "คนละ 30,000", deduc3_1: "3.1 บุตรคนที่ 2 ขึ้นไป", deduc3_1Limit: "คนละ 60,000 (เกิดปี 2561+)", deduc4: "4. บิดามารดา", deduc4Limit: "คนละ 30,000 (อายุ > 60 ปี, สูงสุด 4 คน)", deduc5: "5. อุปการะคนพิการ/ทุพพลภาพ", deduc5Limit: "คนละ 60,000", deduc6: "6. ค่าฝากครรภ์และทำคลอด", deduc6Limit: "ครรภ์ละไม่เกิน 60,000",
+                insuranceBadge: "Life & Health Insurance",
+                deduc7: "7. เบี้ยประกันชีวิตทั่วไป", deduc7Limit: "สูงสุด 100,000", deduc7_1: "7.1 เบี้ยประกันสุขภาพตนเอง", deduc7_1Limit: "สูงสุด 25,000 (รวมข้อ 7 ไม่เกิน 1 แสน)", deduc8: "8. เบี้ยประกันชีวิตคู่สมรส", deduc8Limit: "สูงสุด 10,000 (คู่สมรสไม่มีรายได้)", deduc9: "9. เบี้ยประกันสุขภาพบิดามารดา", deduc9Limit: "สูงสุด 15,000",
+                retirementBadge: "Retirement Funds",
+                maxCapLabel: "500,000 THB MAX CAP", amountBeforeLabel: "ยอดก่อนแผน:", amountAfterLabel: "ยอดหลังแผน:", exceedCapMsg: "ยอดเกินเพดาน",
+                deduc10: "10. กองทุนสำรองเลี้ยงชีพ / กบข.", deduc11: "11. กองทุน RMF", deduc12: "12. เบี้ยประกันบำนาญ", deduc13: "13. กองทุนการออมแห่งชาติ (กอช.)", deduc13Limit: "สูงสุด 30,000",
+                esgBadge: "Thai ESG", separateCapLabel: "Separate Cap",
+                deduc18: "18. กองทุน Thai ESG", deduc19: "19. Thai ESGX (สับเปลี่ยน LTF)", deduc19Limit: "สิทธิลดหย่อนปี 2569 ไม่เกิน 50,000",
+                othersBadge: "Others & Donations",
+                deduc14: "14. เงินสมทบประกันสังคม", deduc14Limit: "ตามจริง สูงสุด 10,500", deduc15: "15. ดอกเบี้ยที่อยู่อาศัย", deduc15Limit: "สูงสุด 100,000", deduc16: "16. บริจาคพรรคการเมือง", deduc16Limit: "สูงสุด 10,000", deduc17: "17. วิสาหกิจเพื่อสังคม (SE)", deduc17Limit: "สูงสุด 100,000", deduc20: "20. ค่าซื้องานศิลปะ", deduc20Limit: "สูงสุด 100,000", deduc21: "21. ติดตั้งโซล่าร์เซลล์", deduc21Limit: "สูงสุด 200,000", deduc22: "22. ศึกษา/กีฬา/รพ.รัฐ (หัก 2 เท่า)", deduc22Limit: "ไม่เกิน 10%", deduc23: "23. เงินบริจาคทั่วไป", deduc23Limit: "ไม่เกิน 10%",
+                
+                backBtn: "BACK", nextSummaryBtn: "VIEW SUMMARY", previewPDFBtn: "SAVE AS IMAGE", showPreviewBtn: "เปิดหน้าต่าง Print Preview", closePreviewBtn: "ปิดหน้าต่าง", summaryTitle: "Summary", summaryItemLabel: "รายการ", summaryAssessable: "เงินได้พึงประเมิน", summaryTotalDeductions: "รวมลดหย่อน", summaryNetIncome: "เงินได้สุทธิ",
+                taxBracketsHitTitle: "Tax Brackets Hit", bracketDownMsg: "ฐานภาษีลดลงจาก", netIncomeStep: "ขั้นเงินได้", taxRate: "อัตรา", taxBefore: "ภาษีก่อนแผน", taxAfter: "ภาษีเป้าหมาย", exempt: "ยกเว้น", infinity: "ขึ้นไป",
+                withheldPaid: "ภาษีหัก ณ ที่จ่าย (จ่ายไปแล้ว):", currentTaxTotal: "ภาษีรวม (ปัจจุบัน)", planTaxTotal: "ภาษีรวม (เป้าหมาย)", statusCurrent: "สถานะ: ปัจจุบัน", statusPlan: "สถานะ: เป้าหมาย", payMore: "ต้องจ่ายเพิ่ม", getRefund: "ขอคืนได้", youWillSave: "You will save",
+                
+                overviewTitle: "Executive Summary", taxSavedTitle: "วางแผนภาษี", taxSavedDesc: "รวมยอดประหยัดภาษีจากการวางแผนพอร์ตลดหย่อนของคุณ", incomeCardTitle: "ข้อมูลรายได้", currentCardTitle: "แผนปัจจุบัน (Current)", planCardTitle: "เป้าหมาย (Plan)", viewDetailsBtn: "ดูรายละเอียดลดหย่อน",
+                faRecommendationTitle: "คำแนะนำจากที่ปรึกษาการเงิน (FA)", faRecommendationPlaceholder: "พิมพ์คำแนะนำหรือแผนการลงทุนเพิ่มเติมที่นี่...", plannedDeductionsTitle: "รายละเอียดการใช้สิทธิลดหย่อน (เป้าหมาย)", incomeSourcesTitle: "รายละเอียดแหล่งที่มารายได้",
+                rightsAnalysis: "สิทธิลดหย่อนที่ไม่ได้ใช้ และ สามารถซื้อเพิ่มได้", rightsItem: "รายการ", rightsMax: "สิทธิสูงสุด", rightsRemaining: "คงเหลือ", beforePlan: "ก่อนแผน", targetPlan: "เป้าหมาย",
+                analysisGroupLifeHealth: "กลุ่มประกันชีวิต & สุขภาพรวม", analysisSelfHealth: "└ เฉพาะประกันสุขภาพตนเอง", analysisGroupRetirement: "กลุ่มเกษียณรวม (PVD+RMF+บำนาญ+กอช.)", analysisPVD: "└ เฉพาะกองทุนสำรองเลี้ยงชีพ/กบข.", analysisRMF: "└ เฉพาะกองทุน RMF", analysisPension: "└ เฉพาะเบี้ยประกันบำนาญ", analysisThaiESG: "กองทุน Thai ESG", analysisThaiESGX: "Thai ESGX (สับเปลี่ยน LTF)", analysisMortgage: "ดอกเบี้ยที่อยู่อาศัย", analysisPolitical: "เงินบริจาคพรรคการเมือง", analysisSE: "วิสาหกิจเพื่อสังคม (SE)", analysisArt: "ค่าซื้องานศิลปะ", analysisSolar: "ติดตั้งโซล่าร์เซลล์", analysisEduDonation: "เงินบริจาค (การศึกษา/รพ.) หัก 2 เท่า", analysisGeneralDonation: "เงินบริจาคทั่วไป",
+            },
+            EN: {
+                appTitle: "MCDJTaxPlanner", step1: "1. Income", step2: "2. Deductions", step3: "3. Summary",
+                incomeData: "Income Data", incomeDesc: "Specify income according to Section 40(1) - 40(8)",
+                inc1Title: "(1) Salary, Bonus", inc1Sub: "Salary, Bonus", inc1ExpenseNote: "Max 100k (incl. 40(2))",
+                inc2Title: "(2) Commission", inc2Sub: "Commission", inc3Title: "(3) Royalty", inc3Sub: "Royalty", inc4Title: "(4) Interest / Dividend", inc4Sub: "Interest / Dividend",
+                inc5Title: "(5) Rental", inc5Sub: "Rental", inc6Title: "(6) Profession", inc6Sub: "Profession", inc7Title: "(7) Contractor", inc7Sub: "Contractor", inc8Title: "(8) Others", inc8Sub: "Others",
+                incomeLabel: "Yearly Income", expenseLabel: "Expenses", withheldLabel: "Withholding Tax", netIncomeLabel: "Net Income after expenses",
+                totalAssessableIncome: "Total Assessable Income", netAssessableIncomeLabel: "Net Assessable Income", totalIncomeLabel: "Total Income", expensesLabel: "Expenses", deductionsPlanBtn: "Deductions Plan",
+                
+                deductionsTitle: "Tax Deductions", deductionsDesc: "Simulate tax deduction plan", copyPlanBtn: "Copy Current -> Plan", currentPlanLabel: "Current", targetPlanLabel: "Plan",
+                familyPersonalBadge: "Family & Personal", deduc1: "1. Personal Deduction", deduc1Limit: "60,000 THB", deduc2: "2. Spouse Deduction", deduc2Limit: "Max 60,000 (No income)", deduc3: "3. Child Deduction", deduc3Limit: "30,000 per child", deduc3_1: "3.1 Second Child onwards", deduc3_1Limit: "60,000 per child (Born 2018+)", deduc4: "4. Parents Deduction", deduc4Limit: "30,000 each (Age > 60, Max 4)", deduc5: "5. Disabled Care", deduc5Limit: "60,000 each", deduc6: "6. Maternity Care", deduc6Limit: "Max 60,000 per pregnancy",
+                insuranceBadge: "Life & Health Insurance", deduc7: "7. Life Insurance", deduc7Limit: "Max 100,000", deduc7_1: "7.1 Health Insurance (Self)", deduc7_1Limit: "Max 25,000 (Combined with #7 max 100k)", deduc8: "8. Spouse Life Insurance", deduc8Limit: "Max 10,000 (Spouse no income)", deduc9: "9. Parents Health Insurance", deduc9Limit: "Max 15,000",
+                retirementBadge: "Retirement Funds", maxCapLabel: "500,000 THB MAX CAP", amountBeforeLabel: "Before Plan:", amountAfterLabel: "After Plan:", exceedCapMsg: "Exceeds cap",
+                deduc10: "10. Provident Fund / GPF", deduc11: "11. RMF Fund", deduc12: "12. Pension Insurance", deduc13: "13. National Savings Fund (NSF)", deduc13Limit: "Max 30,000",
+                esgBadge: "Thai ESG", separateCapLabel: "Separate Cap", deduc18: "18. Thai ESG Fund", deduc19: "19. Thai ESGX", deduc19Limit: "Max 50,000",
+                othersBadge: "Others & Donations", deduc14: "14. Social Security", deduc14Limit: "Actual paid, Max 10,500", deduc15: "15. Mortgage Interest", deduc15Limit: "Max 100,000", deduc16: "16. Political Donation", deduc16Limit: "Max 10,000", deduc17: "17. Social Enterprise (SE)", deduc17Limit: "Max 100,000", deduc20: "20. Art Purchase", deduc20Limit: "Max 100,000", deduc21: "21. Solar Cell Installation", deduc21Limit: "Max 200,000", deduc22: "22. Edu/Sport/Gov Hospital (Double)", deduc22Limit: "Max 10%", deduc23: "23. General Donation", deduc23Limit: "Max 10%",
+                
+                backBtn: "BACK", nextSummaryBtn: "VIEW SUMMARY", previewPDFBtn: "SAVE AS IMAGE", showPreviewBtn: "Open Print Preview", closePreviewBtn: "Close Document", summaryTitle: "Summary", summaryItemLabel: "Item", summaryAssessable: "Assessable Income", summaryTotalDeductions: "Total Deductions", summaryNetIncome: "Net Income",
+                taxBracketsHitTitle: "Tax Brackets Hit", bracketDownMsg: "Tax bracket reduced from", netIncomeStep: "Net Income", taxRate: "Rate", taxBefore: "Before Planning", taxAfter: "After Planning", exempt: "Exempt", infinity: "and above",
+                withheldPaid: "Withholding Tax (Paid):", currentTaxTotal: "Total Tax (Current)", planTaxTotal: "Total Tax (Plan)", statusCurrent: "Status: Current", statusPlan: "Status: Plan", payMore: "Pay More", getRefund: "Refund", youWillSave: "You will save",
+                
+                overviewTitle: "Executive Summary", taxSavedTitle: "Tax Planning", taxSavedDesc: "Total tax savings from your strategic deduction portfolio.", incomeCardTitle: "Income Profile", currentCardTitle: "Current Scenario", planCardTitle: "Target Scenario", viewDetailsBtn: "View Deduction Details",
+                faRecommendationTitle: "Financial Advisor (FA) Recommendations", faRecommendationPlaceholder: "Type your recommendations or additional investment plans here...", plannedDeductionsTitle: "Planned Deductions Details", incomeSourcesTitle: "Income Sources Details",
+                rightsAnalysis: "Unused & Available Deductions", rightsItem: "Item", rightsMax: "Max Cap", rightsRemaining: "Remaining", beforePlan: "Before", targetPlan: "Plan",
+                analysisGroupLifeHealth: "Life & Health Insurance Group", analysisSelfHealth: "└ Self Health Insurance Only", analysisGroupRetirement: "Retirement Group (PVD+RMF+Pension+NSF)", analysisPVD: "└ Provident Fund / GPF Only", analysisRMF: "└ RMF Only", analysisPension: "└ Pension Insurance Only", analysisThaiESG: "Thai ESG Fund", analysisThaiESGX: "Thai ESGX (LTF Switch)", analysisMortgage: "Mortgage Interest", analysisPolitical: "Political Donation", analysisSE: "Social Enterprise (SE)", analysisArt: "Art Purchase", analysisSolar: "Solar Cell Installation", analysisEduDonation: "Edu/Hospital Donation (Double)", analysisGeneralDonation: "General Donation",
+            }
+        };
+
+        const formatNumber = (num) => {
+            if (num === null || num === undefined || isNaN(num)) return "0.00";
+            return Number(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
+
+        const parseNumber = (val) => {
+            if (val === null || val === undefined || val === '') return 0;
+            if (typeof val === 'number') return val;
+            const parsed = parseFloat(String(val).replace(/,/g, ''));
+            return isNaN(parsed) ? 0 : parsed;
+        };
+
+        const calculateTax = (netIncome) => {
+            const brackets = [
+                { max: 150000, rate: 0, deduction: 0 },
+                { max: 300000, rate: 0.05, deduction: 7500 },
+                { max: 500000, rate: 0.10, deduction: 27500 },
+                { max: 750000, rate: 0.15, deduction: 65000 },
+                { max: 1000000, rate: 0.20, deduction: 115000 },
+                { max: 2000000, rate: 0.25, deduction: 365000 },
+                { max: 5000000, rate: 0.30, deduction: 1265000 },
+                { max: Infinity, rate: 0.35, deduction: 1265000 }
+            ];
+
+            let tax = 0;
+            let bracketTaxes = [];
+            let remainingIncome = netIncome;
+            let previousMax = 0;
+
+            for (let i = 0; i < brackets.length; i++) {
+                const b = brackets[i];
+                const taxableInThisBracket = Math.min(Math.max(0, remainingIncome), (b.max - previousMax));
+                const taxForBracket = taxableInThisBracket * b.rate;
+                
+                bracketTaxes.push({
+                    min: previousMax + (i === 0 ? 0 : 1),
+                    max: b.max,
+                    rate: b.rate,
+                    tax: taxForBracket
+                });
+
+                tax += taxForBracket;
+                remainingIncome -= taxableInThisBracket;
+                previousMax = b.max;
+
+                if (remainingIncome <= 0) break;
+            }
+
+            while (bracketTaxes.length < brackets.length) {
+                const b = brackets[bracketTaxes.length];
+                bracketTaxes.push({
+                    min: previousMax + 1,
+                    max: b.max,
+                    rate: b.rate,
+                    tax: 0
+                });
+                previousMax = b.max;
+            }
+
+            return { totalTax: tax, bracketTaxes };
+        };
+
+        const FormattedInput = ({ value, onChange, className = "", readOnly, disabled, highlight = false, alignRight = true, maxValue = Infinity }) => {
+            const [isFocused, setIsFocused] = useState(false);
+            const [inputValue, setInputValue] = useState(value === 0 ? '' : value);
+
+            useEffect(() => {
+                if (!isFocused) {
+                    setInputValue(value === 0 ? '' : value);
+                }
+            }, [value, isFocused]);
+
+            const handleFocus = (e) => {
+                if(readOnly || disabled) return;
+                setIsFocused(true);
+                const target = e.target;
+                setTimeout(() => {
+                    if (target && target.select) target.select();
+                }, 0);
+            };
+            const handleBlur = () => { setIsFocused(false); };
+            const handleChange = (e) => {
+                let val = e.target.value;
+                const cleanStr = val.replace(/[^0-9.-]/g, '');
+                setInputValue(cleanStr);
+                
+                if (cleanStr === '' || cleanStr === '-') {
+                    if (onChange) onChange(0);
+                } else if (!cleanStr.endsWith('.')) {
+                    const parsed = parseFloat(cleanStr);
+                    if (!isNaN(parsed) && onChange) {
+                        onChange(parsed);
+                    }
+                }
+            };
+
+            const isExceedLimit = value > maxValue;
+            const displayValue = readOnly || disabled 
+                ? formatNumber(value) 
+                : (isFocused ? inputValue : formatNumber(value));
+
+            let baseClasses = `w-full ${alignRight ? 'text-right' : 'text-left'} p-3.5 text-sm rounded-xl font-inter font-medium transition-all duration-200 outline-none `;
+            
+            if (readOnly || disabled) {
+                baseClasses += "bg-gray-100 text-gray-500 border border-gray-100 cursor-not-allowed ";
+            } else if (highlight) {
+                baseClasses += "bg-white text-gray-900 border border-gray-300 focus:border-gray-900 focus:ring-1 focus:ring-gray-900 shadow-sm ";
+            } else {
+                baseClasses += "bg-gray-50 text-gray-900 border border-gray-200 hover:border-gray-300 focus:bg-white focus:border-[#111111] focus:ring-2 focus:ring-[#111111]/50 ";
+            }
+
+            if(isExceedLimit) {
+                baseClasses += "!text-[#FF453A] !bg-red-50 !border-red-300 focus:!border-red-500 focus:!ring-red-500/50 ";
+            }
+
+            return (
+                <input
+                    type="text"
+                    inputMode="decimal"
+                    className={`${baseClasses} ${className}`}
+                    value={displayValue}
+                    onChange={handleChange}
+                    onFocus={handleFocus}
+                    onBlur={handleBlur}
+                    readOnly={readOnly || disabled}
+                    disabled={disabled}
+                    placeholder="0.00"
+                />
+            );
+        };
+
+        const IncomeCard = ({ title, subTitle, type, hasExpenseLimit, expenseNote, incomes, expenses, withheldTaxes, handleIncomeChange, handleExpenseChange, handleWithheldChange, t }) => (
+            <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 className="font-semibold text-gray-900 text-sm">{title}</h3>
+                        <p className="text-[11px] text-gray-500 mt-0.5 uppercase tracking-wider">{subTitle}</p>
+                    </div>
+                </div>
+                
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-1.5 block">{t.incomeLabel}</label>
+                        <FormattedInput highlight={true} value={incomes[type]} onChange={(val) => handleIncomeChange(type, val)} />
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold mb-1.5 flex justify-between">
+                                <span>{t.expenseLabel}</span>
+                            </label>
+                            {hasExpenseLimit ? (
+                                <div className="relative group">
+                                    <FormattedInput readOnly value={expenses[type]} />
+                                    <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none opacity-40 text-gray-500">
+                                        <i className="fas fa-lock text-[10px]"></i>
+                                    </div>
+                                </div>
+                            ) : (
+                                <FormattedInput value={expenses[type]} onChange={(val) => handleExpenseChange(type, val)} />
+                            )}
+                            {expenseNote && <p className="text-[9px] text-gray-400 mt-1">{expenseNote}</p>}
+                        </div>
+                        
+                        <div>
+                            <label className="text-[10px] text-[#A3C400] uppercase tracking-wider font-semibold mb-1.5 block">{t.withheldLabel}</label>
+                            <FormattedInput value={withheldTaxes[type]} onChange={(val) => handleWithheldChange(type, val)} />
+                        </div>
+                    </div>
+                    
+                    <div className="pt-3 border-t border-gray-100 flex justify-between items-center">
+                        <span className="text-[11px] text-gray-500">{t.netIncomeLabel}</span>
+                        <span className="font-inter font-medium text-gray-900">{formatNumber(incomes[type] - (expenses[type] || 0))}</span>
+                    </div>
+                </div>
+            </div>
+        );
+
+        const DeductionRow = ({ label, limitText, field, valBefore, valAfter, maxValue = Infinity, onChangeBefore, onChangeAfter, isReadOnly = false }) => {
+            const isExceedLimit = valAfter > maxValue;
+
+            return (
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center py-4 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors rounded-xl px-2 -mx-2">
+                    <div className="w-full md:w-1/2 pr-4 mb-3 md:mb-0">
+                        <div className="font-medium text-sm text-gray-900">{label}</div>
+                        <div className="text-[11px] text-gray-500 mt-1 tracking-wide">{limitText}</div>
+                    </div>
+                    <div className="w-full md:w-1/2 flex flex-col space-y-1">
+                        <div className="flex space-x-3 w-full">
+                            <div className="w-1/2 relative">
+                                <FormattedInput value={valBefore} onChange={(val) => onChangeBefore(field, val)} readOnly={isReadOnly} />
+                            </div>
+                            <div className="w-1/2 relative">
+                                <FormattedInput 
+                                    value={valAfter} 
+                                    onChange={(val) => onChangeAfter(field, val)} 
+                                    readOnly={isReadOnly} 
+                                    maxValue={maxValue}
+                                />
+                            </div>
+                        </div>
+                        {isExceedLimit && (
+                            <div className="text-[10px] text-[#FF453A] font-medium mt-1 text-right flex justify-end items-center">
+                                <i className="fas fa-exclamation-circle mr-1"></i> ยอดเกินเพดาน {formatNumber(maxValue)} บาท (ส่วนเกินจะไม่นำมาคิด)
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const SectionBadge = ({ text, icon }) => (
+            <div className="flex items-center mb-6 mt-8 first:mt-0">
+                <div className="bg-gray-100 px-4 py-2 rounded-full text-[10px] font-semibold uppercase tracking-widest text-gray-700 flex items-center shadow-sm">
+                    <i className={`fas ${icon} mr-2 text-gray-400`}></i> {text}
+                </div>
+            </div>
+        );
+
+        const IncomePage = ({ incomes, setIncomes, expenses, setExpenses, withheldTaxes, setWithheldTaxes, onNext, t }) => {
+            const handleIncomeChange = (type, value) => {
+                const numValue = parseNumber(value);
+                setIncomes(prev => {
+                    const newIncomes = { ...prev, [type]: numValue };
+                    if (type === 'salary' || type === 'commission') {
+                        const combinedIncome = (newIncomes.salary || 0) + (newIncomes.commission || 0);
+                        const autoExpense = Math.min(combinedIncome * 0.5, 100000);
+                        setExpenses(exp => ({ ...exp, salary: autoExpense, commission: 0 }));
+                    }
+                    return newIncomes;
+                });
+            };
+
+            const handleExpenseChange = (type, value) => { setExpenses(prev => ({ ...prev, [type]: parseNumber(value) })); };
+            const handleWithheldChange = (type, value) => { setWithheldTaxes(prev => ({ ...prev, [type]: parseNumber(value) })); };
+
+            const totalIncome = Object.values(incomes).reduce((acc, curr) => acc + curr, 0);
+            const totalExpenses = Object.values(expenses).reduce((acc, curr) => acc + curr, 0);
+            const totalWithheld = Object.values(withheldTaxes).reduce((acc, curr) => acc + curr, 0);
+            const assessableIncome = Math.max(0, totalIncome - totalExpenses);
+
+            return (
+                <div className="bg-white p-6 sm:p-10 rounded-[2rem] shadow-sm animate-fade-in border border-gray-100">
+                    <div className="mb-8 relative z-10">
+                        <h2 className="text-3xl font-medium text-gray-900 tracking-tight font-poppins">{t.incomeData}</h2>
+                        <p className="text-gray-500 mt-1 text-sm">{t.incomeDesc}</p>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 relative z-10">
+                        <IncomeCard title={t.inc1Title} subTitle={t.inc1Sub} type="salary" hasExpenseLimit={true} expenseNote={t.inc1ExpenseNote} incomes={incomes} expenses={expenses} withheldTaxes={withheldTaxes} handleIncomeChange={handleIncomeChange} handleExpenseChange={handleExpenseChange} handleWithheldChange={handleWithheldChange} t={t} />
+                        <IncomeCard title={t.inc2Title} subTitle={t.inc2Sub} type="commission" hasExpenseLimit={true} incomes={incomes} expenses={expenses} withheldTaxes={withheldTaxes} handleIncomeChange={handleIncomeChange} handleExpenseChange={handleExpenseChange} handleWithheldChange={handleWithheldChange} t={t} />
+                        <IncomeCard title={t.inc3Title} subTitle={t.inc3Sub} type="royalty" incomes={incomes} expenses={expenses} withheldTaxes={withheldTaxes} handleIncomeChange={handleIncomeChange} handleExpenseChange={handleExpenseChange} handleWithheldChange={handleWithheldChange} t={t} />
+                        <IncomeCard title={t.inc4Title} subTitle={t.inc4Sub} type="interest" hasExpenseLimit={true} incomes={incomes} expenses={expenses} withheldTaxes={withheldTaxes} handleIncomeChange={handleIncomeChange} handleExpenseChange={handleExpenseChange} handleWithheldChange={handleWithheldChange} t={t} />
+                        <IncomeCard title={t.inc5Title} subTitle={t.inc5Sub} type="rental" incomes={incomes} expenses={expenses} withheldTaxes={withheldTaxes} handleIncomeChange={handleIncomeChange} handleExpenseChange={handleExpenseChange} handleWithheldChange={handleWithheldChange} t={t} />
+                        <IncomeCard title={t.inc6Title} subTitle={t.inc6Sub} type="profession" incomes={incomes} expenses={expenses} withheldTaxes={withheldTaxes} handleIncomeChange={handleIncomeChange} handleExpenseChange={handleExpenseChange} handleWithheldChange={handleWithheldChange} t={t} />
+                        <IncomeCard title={t.inc7Title} subTitle={t.inc7Sub} type="contractor" incomes={incomes} expenses={expenses} withheldTaxes={withheldTaxes} handleIncomeChange={handleIncomeChange} handleExpenseChange={handleExpenseChange} handleWithheldChange={handleWithheldChange} t={t} />
+                        <IncomeCard title={t.inc8Title} subTitle={t.inc8Sub} type="others" incomes={incomes} expenses={expenses} withheldTaxes={withheldTaxes} handleIncomeChange={handleIncomeChange} handleExpenseChange={handleExpenseChange} handleWithheldChange={handleWithheldChange} t={t} />
+                    </div>
+
+                    <div className="mt-10 bg-gray-50 p-6 rounded-3xl border border-gray-200">
+                        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                            <div className="text-center md:text-left">
+                                <div className="text-gray-500 text-[10px] font-bold uppercase tracking-widest mb-1">{t.totalAssessableIncome}</div>
+                                <div className="text-sm font-medium text-gray-900">{t.netAssessableIncomeLabel}</div>
+                            </div>
+                            <div className="text-right flex items-center gap-6">
+                                <div className="hidden md:block text-right">
+                                    <div className="text-[10px] text-gray-500 uppercase tracking-wider">{t.totalIncomeLabel}</div>
+                                    <div className="font-inter font-bold text-gray-900 text-sm">{formatNumber(totalIncome)}</div>
+                                </div>
+                                <div className="hidden md:block text-right">
+                                    <div className="text-[10px] text-gray-500 uppercase tracking-wider">{t.expensesLabel}</div>
+                                    <div className="font-inter font-bold text-red-500 text-sm">- {formatNumber(totalExpenses)}</div>
+                                </div>
+                                <div className="text-right pl-4 md:border-l md:border-gray-300">
+                                    <div className="font-inter font-extrabold text-3xl text-gray-900 tracking-tighter">{formatNumber(assessableIncome)}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div className="mt-8 flex justify-end relative z-10">
+                        <button onClick={onNext} className="w-full md:w-auto bg-[#111111] hover:bg-black text-white font-bold py-3 pl-6 pr-6 rounded-full flex items-center justify-center transition-all hover:shadow-md">
+                            <span className="text-sm uppercase tracking-widest font-poppins">{t.deductionsPlanBtn}</span>
+                            <i className="fas fa-arrow-right ml-4"></i>
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const DeductionsPage = ({ 
+            incomes, expenses, withheldTaxes, 
+            beforeDeductions, setBeforeDeductions, afterDeductions, setAfterDeductions, 
+            beforeDonations, setBeforeDonations, afterDonations, setAfterDonations, 
+            faRecommendation, setFaRecommendation, calculateTaxScenario,
+            onPrev, onNext, t 
+        }) => {
+            const totalIncome = Object.values(incomes).reduce((acc, curr) => acc + curr, 0);
+            const totalExpenses = Object.values(expenses).reduce((acc, curr) => acc + curr, 0);
+            const totalWithheldTax = Object.values(withheldTaxes).reduce((acc, curr) => acc + curr, 0);
+            const assessableIncome = Math.max(0, totalIncome - totalExpenses);
+
+            const handleBeforeDeductionChange = (type, value) => { setBeforeDeductions(prev => ({ ...prev, [type]: parseNumber(value) })); };
+            const handleAfterDeductionChange = (type, value) => { setAfterDeductions(prev => ({ ...prev, [type]: parseNumber(value) })); };
+            const handleBeforeDonationChange = (type, value) => { setBeforeDonations(prev => ({ ...prev, [type]: parseNumber(value) })); };
+            const handleAfterDonationChange = (type, value) => { setAfterDonations(prev => ({ ...prev, [type]: parseNumber(value) })); };
+
+            const copyBeforeToAfter = () => {
+                setAfterDeductions({ ...beforeDeductions });
+                setAfterDonations({ ...beforeDonations });
+            };
+
+            const beforeCalc = calculateTaxScenario(assessableIncome, totalIncome, totalWithheldTax, beforeDeductions, beforeDonations);
+            const afterCalc = calculateTaxScenario(assessableIncome, totalIncome, totalWithheldTax, afterDeductions, afterDonations);
+            const taxSaving = beforeCalc.totalTax - afterCalc.totalTax;
+
+            const getHighestBracketIndex = (bracketTaxes, netIncome) => {
+                if (netIncome <= 0) return 0;
+                let highestIdx = 0;
+                for (let i = 0; i < bracketTaxes.length; i++) {
+                    if (bracketTaxes[i].tax > 0 || (i === 0 && netIncome > 0)) highestIdx = i;
+                }
+                return highestIdx;
+            };
+
+            const highestBeforeIdx = getHighestBracketIndex(beforeCalc.bracketTaxes, beforeCalc.finalNetIncome);
+            const highestAfterIdx = getHighestBracketIndex(afterCalc.bracketTaxes, afterCalc.finalNetIncome);
+
+            const maxPVD_base = Math.min(totalIncome * 0.15, 500000);
+            const maxRMF_base = Math.min(totalIncome * 0.30, 500000);
+            const maxPension_base = Math.min(totalIncome * 0.15, 200000);
+            
+            const getDynamicAfter = (val, baseMax) => {
+                const others = afterCalc.sumRetirementRaw - (val || 0);
+                const sharedRemaining = Math.max(0, 500000 - others);
+                return Math.min(baseMax, sharedRemaining);
+            };
+
+            const maxPVD_Dynamic = getDynamicAfter(afterDeductions.providentFund, maxPVD_base);
+            const maxRMF_Dynamic = getDynamicAfter(afterDeductions.rmf, maxRMF_base);
+            const maxPension_Dynamic = getDynamicAfter(afterDeductions.pension, maxPension_base);
+            const maxNSF_Dynamic = getDynamicAfter(afterDeductions.nsf, 30000);
+
+            const sumLifeHealthBefore = (beforeDeductions.lifeInsurance || 0) + (beforeDeductions.healthInsurance || 0);
+            const sumLifeHealthAfter = (afterDeductions.lifeInsurance || 0) + (afterDeductions.healthInsurance || 0);
+
+            return (
+                <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start pb-20 animate-fade-in">
+                    
+                    {/* Left Column: Input Form */}
+                    <div className="xl:col-span-7 bg-white p-6 sm:p-8 rounded-[2rem] shadow-sm border border-gray-100 relative">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+                            <div>
+                                <h2 className="text-3xl font-medium text-gray-900 tracking-tight font-poppins">{t.deductionsTitle}</h2>
+                                <p className="text-gray-500 mt-1 text-sm">{t.deductionsDesc}</p>
+                            </div>
+                            <button onClick={copyBeforeToAfter} className="flex items-center text-[10px] font-semibold uppercase tracking-wider bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-full transition-all">
+                                <i className="fas fa-copy mr-2 opacity-60"></i> {t.copyPlanBtn}
+                            </button>
+                        </div>
+
+                        {/* Sticky Column Headers */}
+                        <div className="flex justify-end space-x-3 mb-6 sticky top-[70px] bg-white/95 backdrop-blur-xl z-10 py-4 border-b border-gray-100 mx--6 px-6">
+                             <div className="w-full md:w-1/2 flex space-x-3 justify-end text-[10px] font-bold text-center uppercase tracking-widest">
+                                 <div className="w-1/2 text-gray-500 bg-gray-100 rounded-full py-2 border border-gray-200">{t.currentPlanLabel}</div>
+                                 <div className="w-1/2 text-white bg-[#111111] rounded-full py-2 shadow-sm">{t.targetPlanLabel}</div>
+                             </div>
+                        </div>
+
+                        {/* 1-6. Personal & Family */}
+                        <div>
+                            <SectionBadge text={t.familyPersonalBadge} icon="fa-user" />
+                            <DeductionRow label={t.deduc1} limitText={t.deduc1Limit} field="personal" valBefore={beforeDeductions.personal} valAfter={afterDeductions.personal} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} isReadOnly={true} />
+                            <DeductionRow label={t.deduc2} limitText={t.deduc2Limit} field="spouse" valBefore={beforeDeductions.spouse} valAfter={afterDeductions.spouse} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={60000} />
+                            <DeductionRow label={t.deduc3} limitText={t.deduc3Limit} field="children" valBefore={beforeDeductions.children} valAfter={afterDeductions.children} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} />
+                            <DeductionRow label={t.deduc3_1} limitText={t.deduc3_1Limit} field="child2018" valBefore={beforeDeductions.child2018} valAfter={afterDeductions.child2018} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} />
+                            <DeductionRow label={t.deduc4} limitText={t.deduc4Limit} field="parents" valBefore={beforeDeductions.parents} valAfter={afterDeductions.parents} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={120000} />
+                            <DeductionRow label={t.deduc5} limitText={t.deduc5Limit} field="disabled" valBefore={beforeDeductions.disabled} valAfter={afterDeductions.disabled} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} />
+                            <DeductionRow label={t.deduc6} limitText={t.deduc6Limit} field="maternity" valBefore={beforeDeductions.maternity} valAfter={afterDeductions.maternity} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={60000} />
+                        </div>
+
+                        {/* 7-9. Insurance */}
+                        <div className="mt-8">
+                            <SectionBadge text={t.insuranceBadge} icon="fa-heartbeat" />
+                            
+                            <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200 mb-6">
+                                <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4">100,000 THB MAX CAP (รวมข้อ 7 และ 7.1)</div>
+                                <div className="flex justify-between items-center text-sm mb-2">
+                                    <span className="text-gray-500">{t.amountBeforeLabel} <span className={`font-inter ${sumLifeHealthBefore > 100000 ? 'text-[#FF453A] font-bold' : 'text-gray-900'}`}>{formatNumber(sumLifeHealthBefore)}</span></span>
+                                    <span className="text-gray-500">{t.amountAfterLabel} <span className={`font-inter ${sumLifeHealthAfter > 100000 ? 'text-[#FF453A] font-bold' : 'text-[#A3C400] font-bold'}`}>{formatNumber(sumLifeHealthAfter)}</span></span>
+                                </div>
+                                <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden mt-2">
+                                    <div className={`h-full ${sumLifeHealthAfter > 100000 ? 'bg-[#FF453A]' : 'bg-[#D4FF00]'}`} style={{width: `${Math.min((sumLifeHealthAfter/100000)*100, 100)}%`}}></div>
+                                </div>
+                                {sumLifeHealthAfter > 100000 && (
+                                    <div className="text-xs text-[#FF453A] font-medium mt-3 flex items-center"><i className="fas fa-exclamation-circle mr-2"></i> {t.exceedCapMsg} 100,000 บาท (ส่วนเกินจะไม่นำมาคิด)</div>
+                                )}
+                            </div>
+                            
+                            <div className="bg-gray-50/50 rounded-xl p-2 mb-4 border border-gray-100">
+                                <DeductionRow label={t.deduc7} limitText={t.deduc7Limit} field="lifeInsurance" valBefore={beforeDeductions.lifeInsurance} valAfter={afterDeductions.lifeInsurance} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={100000} />
+                                <DeductionRow label={t.deduc7_1} limitText={t.deduc7_1Limit} field="healthInsurance" valBefore={beforeDeductions.healthInsurance} valAfter={afterDeductions.healthInsurance} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={25000} />
+                            </div>
+
+                            <DeductionRow label={t.deduc8} limitText={t.deduc8Limit} field="spouseLifeInsurance" valBefore={beforeDeductions.spouseLifeInsurance} valAfter={afterDeductions.spouseLifeInsurance} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={10000} />
+                            <DeductionRow label={t.deduc9} limitText={t.deduc9Limit} field="parentsHealth" valBefore={beforeDeductions.parentsHealth} valAfter={afterDeductions.parentsHealth} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={15000} />
+                        </div>
+
+                        {/* 10-13. Retirement */}
+                        <div className="mt-8">
+                            <SectionBadge text={t.retirementBadge} icon="fa-piggy-bank" />
+                            <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200 mb-6">
+                                <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-4">{t.maxCapLabel}</div>
+                                <div className="flex justify-between items-center text-sm mb-2">
+                                    <span className="text-gray-500">{t.amountBeforeLabel} <span className={`font-inter ${beforeCalc.sumRetirementRaw > 500000 ? 'text-[#FF453A] font-bold' : 'text-gray-900'}`}>{formatNumber(beforeCalc.sumRetirementRaw)}</span></span>
+                                    <span className="text-gray-500">{t.amountAfterLabel} <span className={`font-inter ${afterCalc.sumRetirementRaw > 500000 ? 'text-[#FF453A] font-bold' : 'text-[#A3C400] font-bold'}`}>{formatNumber(afterCalc.sumRetirementRaw)}</span></span>
+                                </div>
+                                <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden mt-2">
+                                    <div className={`h-full ${afterCalc.sumRetirementRaw > 500000 ? 'bg-[#FF453A]' : 'bg-[#D4FF00]'}`} style={{width: `${Math.min((afterCalc.sumRetirementRaw/500000)*100, 100)}%`}}></div>
+                                </div>
+                                {afterCalc.sumRetirementRaw > 500000 && (
+                                    <div className="text-xs text-[#FF453A] font-medium mt-3 flex items-center"><i className="fas fa-exclamation-circle mr-2"></i> {t.exceedCapMsg} 500,000 บาท (ส่วนเกินจะไม่นำมาคิด)</div>
+                                )}
+                            </div>
+                            
+                            <DeductionRow label={t.deduc10} limitText={`สูงสุด 15-30% (ไม่เกิน ${formatNumber(maxPVD_Dynamic)})`} field="providentFund" valBefore={beforeDeductions.providentFund} valAfter={afterDeductions.providentFund} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={maxPVD_Dynamic} />
+                            <DeductionRow label={t.deduc11} limitText={`สูงสุด 30% (ไม่เกิน ${formatNumber(maxRMF_Dynamic)})`} field="rmf" valBefore={beforeDeductions.rmf} valAfter={afterDeductions.rmf} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={maxRMF_Dynamic} />
+                            <DeductionRow label={t.deduc12} limitText={`สูงสุด 15% (ไม่เกิน ${formatNumber(maxPension_Dynamic)})`} field="pension" valBefore={beforeDeductions.pension} valAfter={afterDeductions.pension} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={maxPension_Dynamic} />
+                            <DeductionRow label={t.deduc13} limitText={`สูงสุด 30,000 (ไม่เกิน ${formatNumber(maxNSF_Dynamic)})`} field="nsf" valBefore={beforeDeductions.nsf} valAfter={afterDeductions.nsf} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={maxNSF_Dynamic} />
+                        </div>
+
+                         {/* 18-19. ESG Investments */}
+                         <div className="mt-8">
+                            <SectionBadge text={t.esgBadge} icon="fa-leaf" />
+                            <div className="text-[10px] text-black font-bold bg-[#D4FF00] px-3 py-1 inline-block rounded-md mb-3 uppercase tracking-wider">{t.separateCapLabel}</div>
+                            <DeductionRow label={t.deduc18} limitText={`สูงสุด 30% (ไม่เกิน ${formatNumber(Math.min(totalIncome * 0.30, 300000))})`} field="thaiesg" valBefore={beforeDeductions.thaiesg} valAfter={afterDeductions.thaiesg} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={Math.min(totalIncome * 0.30, 300000)} />
+                            <DeductionRow label={t.deduc19} limitText={t.deduc19Limit} field="thaiesgX" valBefore={beforeDeductions.thaiesgX} valAfter={afterDeductions.thaiesgX} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={50000} />
+                        </div>
+
+                        {/* Others & Donations */}
+                        <div className="mt-8">
+                            <SectionBadge text={t.othersBadge} icon="fa-home" />
+                            <DeductionRow label={t.deduc14} limitText={t.deduc14Limit} field="socialSecurity" valBefore={beforeDeductions.socialSecurity} valAfter={afterDeductions.socialSecurity} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={10500} />
+                            <DeductionRow label={t.deduc15} limitText={t.deduc15Limit} field="mortgage" valBefore={beforeDeductions.mortgage} valAfter={afterDeductions.mortgage} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={100000} />
+                            <DeductionRow label={t.deduc16} limitText={t.deduc16Limit} field="political" valBefore={beforeDeductions.political} valAfter={afterDeductions.political} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={10000} />
+                            <DeductionRow label={t.deduc17} limitText={t.deduc17Limit} field="socialEnterprise" valBefore={beforeDeductions.socialEnterprise} valAfter={afterDeductions.socialEnterprise} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={100000} />
+                            <DeductionRow label={t.deduc20} limitText={t.deduc20Limit} field="artPurchase" valBefore={beforeDeductions.artPurchase} valAfter={afterDeductions.artPurchase} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={100000} />
+                            <DeductionRow label={t.deduc21} limitText={t.deduc21Limit} field="solarCell" valBefore={beforeDeductions.solarCell} valAfter={afterDeductions.solarCell} onChangeBefore={handleBeforeDeductionChange} onChangeAfter={handleAfterDeductionChange} maxValue={200000} />
+                            <DeductionRow label={t.deduc22} limitText={`ไม่เกิน 10% (สูงสุด ${formatNumber(afterCalc.capped.maxEduDonation)} บาท)`} field="eduSport" valBefore={beforeDonations.eduSport} valAfter={afterDonations.eduSport} onChangeBefore={handleBeforeDonationChange} onChangeAfter={handleAfterDonationChange} maxValue={afterCalc.capped.maxEduDonation/2} />
+                            <DeductionRow label={t.deduc23} limitText={`ไม่เกิน 10% (สูงสุด ${formatNumber(afterCalc.capped.maxGeneralDonation)} บาท)`} field="general" valBefore={beforeDonations.general} valAfter={afterDonations.general} onChangeBefore={handleBeforeDonationChange} onChangeAfter={handleAfterDonationChange} maxValue={afterCalc.capped.maxGeneralDonation} />
+                        </div>
+                        
+                        {/* FA Recommendation */}
+                        <div className="mt-10 p-5 bg-yellow-50 rounded-2xl border border-yellow-200">
+                            <h3 className="font-bold text-gray-900 text-sm mb-3 flex items-center"><i className="fas fa-comment-dots text-yellow-500 mr-2"></i> {t.faRecommendationTitle}</h3>
+                            <textarea 
+                                className="w-full bg-white border border-yellow-300 rounded-xl p-4 text-sm font-prompt text-gray-800 outline-none focus:ring-2 focus:ring-yellow-400 resize-none h-24"
+                                placeholder={t.faRecommendationPlaceholder}
+                                value={faRecommendation}
+                                onChange={(e) => setFaRecommendation(e.target.value)}
+                            ></textarea>
+                        </div>
+
+                        <div className="pt-10 flex justify-between items-center">
+                            <button onClick={onPrev} className="bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 font-bold py-3 px-8 rounded-full transition-all flex items-center group text-sm shadow-sm">
+                                <i className="fas fa-arrow-left mr-3 opacity-50 group-hover:-translate-x-1 transition-transform"></i> {t.backBtn}
+                            </button>
+                            <button onClick={onNext} className="bg-[#111111] hover:bg-black text-white font-bold py-3 px-8 rounded-full transition-all flex items-center group text-sm shadow-sm">
+                                {t.nextSummaryBtn} <i className="fas fa-arrow-right ml-3 opacity-50 group-hover:translate-x-1 transition-transform"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Right Column: Comparative Tax Summary */}
+                    <div className="xl:col-span-5 relative">
+                        <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-sm border border-gray-100 sticky top-24">
+                            
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-2xl font-bold text-gray-900 tracking-tight font-poppins">{t.summaryTitle}</h2>
+                            </div>
+
+                            {/* Summary Table */}
+                            <table className="w-full text-sm mb-8 font-inter">
+                                <thead>
+                                    <tr className="border-b border-gray-200 text-gray-500 text-[10px] uppercase tracking-widest">
+                                        <th className="text-left py-3 font-semibold">{t.summaryItemLabel}</th>
+                                        <th className="text-right py-3 w-1/3 font-semibold">{t.currentPlanLabel}</th>
+                                        <th className="text-right py-3 w-1/3 text-gray-900 font-semibold">{t.targetPlanLabel}</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="space-y-4">
+                                    <tr className="border-b border-gray-100">
+                                        <td className="py-4 text-gray-600 font-prompt">{t.summaryAssessable}</td>
+                                        <td className="text-right py-4 font-medium text-gray-700">{formatNumber(assessableIncome)}</td>
+                                        <td className="text-right py-4 text-gray-900 font-medium">{formatNumber(assessableIncome)}</td>
+                                    </tr>
+                                    <tr className="border-b border-gray-100">
+                                        <td className="py-4 text-gray-600 font-prompt">{t.summaryTotalDeductions}</td>
+                                        <td className="text-right py-4 text-red-500 font-medium">- {formatNumber(beforeCalc.totalDeductions + beforeCalc.actualEduDonation + beforeCalc.actualGeneralDonation)}</td>
+                                        <td className="text-right py-4 text-red-500 font-medium">- {formatNumber(afterCalc.totalDeductions + afterCalc.actualEduDonation + afterCalc.actualGeneralDonation)}</td>
+                                    </tr>
+                                    <tr className="text-lg">
+                                        <td className="py-5 text-gray-900 font-prompt font-bold">{t.summaryNetIncome}</td>
+                                        <td className="text-right py-5 font-bold text-gray-700">{formatNumber(beforeCalc.finalNetIncome)}</td>
+                                        <td className="text-right py-5 text-gray-900 font-bold">{formatNumber(afterCalc.finalNetIncome)}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            {/* Full 8-tier Tax Brackets Table */}
+                            <div className="bg-gray-50 p-5 rounded-2xl mb-8 border border-gray-200">
+                                <div className="text-[10px] font-bold text-gray-500 mb-4 uppercase tracking-widest flex items-center">
+                                    <i className="fas fa-layer-group text-gray-400 mr-2"></i> <span className="font-medium font-poppins">{t.taxBracketsHitTitle}</span>
+                                </div>
+                                
+                                {highestBeforeIdx > highestAfterIdx && (
+                                    <div className="mb-4 bg-[#D4FF00]/20 text-[#7a9300] py-2 px-3 rounded-xl text-center text-xs font-bold border border-[#D4FF00]/30 flex items-center justify-center font-prompt">
+                                        <i className="fas fa-level-down-alt mr-2"></i> 
+                                        {t.bracketDownMsg} {beforeCalc.bracketTaxes[highestBeforeIdx].rate * 100}% เป็น {afterCalc.bracketTaxes[highestAfterIdx].rate * 100}%
+                                    </div>
+                                )}
+
+                                <div className="grid grid-cols-12 text-center pb-2 text-gray-500 text-[10px] uppercase tracking-wider font-semibold border-b border-gray-200 mb-2">
+                                    <div className="col-span-4 text-left">{t.netIncomeStep}</div>
+                                    <div className="col-span-2">{t.taxRate}</div>
+                                    <div className="col-span-3 text-right">{t.taxBefore}</div>
+                                    <div className="col-span-3 text-right text-gray-900">{t.taxAfter}</div>
+                                </div>
+                                <div className="space-y-1">
+                                    {beforeCalc.bracketTaxes.map((beforeBracket, i) => {
+                                        const afterBracket = afterCalc.bracketTaxes[i];
+                                        const minText = i === 0 ? "0" : formatNumber(beforeBracket.min).replace(".00", "");
+                                        const maxText = beforeBracket.max === Infinity ? t.infinity : formatNumber(beforeBracket.max).replace(".00", "");
+                                        const rangeText = beforeBracket.max === Infinity ? `${minText} ${maxText}` : `${minText} - ${maxText}`;
+                                        const isActive = beforeBracket.tax > 0 || afterBracket.tax > 0;
+                                        
+                                        return (
+                                            <div key={i} className={`grid grid-cols-12 text-center py-2 px-2 rounded-xl text-xs items-center font-inter ${isActive ? 'bg-white border border-gray-100 shadow-sm' : ''}`}>
+                                                <div className={`col-span-4 text-left tracking-tight ${isActive ? 'text-gray-900' : 'text-gray-400'}`}>
+                                                    {rangeText}
+                                                </div>
+                                                <div className={`col-span-2 font-medium ${isActive ? 'text-gray-900' : 'text-gray-400'}`}>
+                                                    {beforeBracket.rate === 0 ? t.exempt : `${beforeBracket.rate * 100}%`}
+                                                </div>
+                                                <div className={`col-span-3 text-right ${beforeBracket.tax > 0 ? 'text-gray-600 font-medium' : 'text-gray-400'}`}>
+                                                    {formatNumber(beforeBracket.tax)}
+                                                </div>
+                                                <div className={`col-span-3 text-right ${afterBracket.tax > 0 ? 'text-[#A3C400] font-bold' : 'text-gray-400'}`}>
+                                                    {formatNumber(afterBracket.tax)}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Final Results */}
+                            <div className="space-y-4 font-prompt mt-2">
+                                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6 flex justify-between items-center shadow-sm">
+                                    <div className="flex items-center text-gray-700">
+                                        <i className="fas fa-hand-holding-usd text-[#A3C400] mr-3 text-lg"></i>
+                                        <span className="font-bold text-sm uppercase tracking-wider">{t.withheldPaid}</span>
+                                    </div>
+                                    <span className="font-inter font-bold text-gray-900 text-lg">{formatNumber(totalWithheldTax)}</span>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    {/* Current Side */}
+                                    <div className="flex flex-col space-y-3">
+                                        <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200 shadow-sm">
+                                            <span className="font-bold uppercase tracking-widest text-[9px] mb-1 text-gray-400 block">Current Tax</span>
+                                            <span className="font-bold text-sm text-gray-600 block mb-2">{t.currentTaxTotal}</span>
+                                            <span className="font-extrabold text-xl lg:text-2xl font-inter tracking-tighter text-gray-900">{formatNumber(beforeCalc.totalTax)}</span>
+                                        </div>
+                                        <div className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-bold text-center ${beforeCalc.taxPayableOrRefundable > 0 ? 'bg-red-50 text-red-600 border-red-200' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>
+                                            <span className="uppercase tracking-widest text-[9px] mb-1 opacity-80">{t.statusCurrent}</span>
+                                            <span>{beforeCalc.taxPayableOrRefundable > 0 ? t.payMore + ' ' : t.getRefund + ' '} <br className="hidden lg:block"/> <span className="font-inter text-sm">{formatNumber(Math.abs(beforeCalc.taxPayableOrRefundable))}</span></span>
+                                        </div>
+                                    </div>
+
+                                    {/* Plan Side */}
+                                    <div className="flex flex-col space-y-3">
+                                        <div className="bg-[#111111] p-5 rounded-2xl text-white shadow-md">
+                                            <span className="font-bold uppercase tracking-widest text-[9px] mb-1 block text-gray-400">Plan Tax</span>
+                                            <span className="font-bold text-sm block mb-2">{t.planTaxTotal}</span>
+                                            <span className="font-extrabold text-xl lg:text-2xl font-inter tracking-tighter text-[#D4FF00]">{formatNumber(afterCalc.totalTax)}</span>
+                                        </div>
+                                        <div className={`flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-bold text-center ${afterCalc.taxPayableOrRefundable > 0 ? 'bg-red-50 text-red-600 border-red-200' : 'bg-[#1a1a1a] text-[#D4FF00] border border-[#D4FF00]/50 shadow-[0_0_10px_rgba(212,255,0,0.15)]'}`}>
+                                            <span className="uppercase tracking-widest text-[9px] mb-1 opacity-70">{t.statusPlan}</span>
+                                            <span>{afterCalc.taxPayableOrRefundable > 0 ? t.payMore + ' ' : t.getRefund + ' '} <br className="hidden lg:block"/> <span className="font-inter text-sm">{formatNumber(Math.abs(afterCalc.taxPayableOrRefundable))}</span></span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div className="mt-4 bg-[#111111] rounded-2xl p-5 text-center flex flex-col justify-center items-center shadow-lg border border-gray-800">
+                                    <span className="text-gray-400 text-[10px] font-bold uppercase tracking-widest mb-1 block">{t.youWillSave}</span>
+                                    <div className="font-inter font-bold text-3xl tracking-tighter text-white flex items-center">
+                                        <span className="text-lg text-white/50 mr-2 font-light">฿</span>{formatNumber(taxSaving)}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            );
+        };
+
+        const SummaryPage = ({ 
+            incomes, expenses, withheldTaxes, 
+            beforeDeductions, afterDeductions, 
+            beforeDonations, afterDonations, 
+            faRecommendation, calculateTaxScenario,
+            onPrev, t 
+        }) => {
+            const [showPreview, setShowPreview] = useState(false);
+            const contentRef = useRef(null);
+
+            const totalIncome = Object.values(incomes).reduce((acc, curr) => acc + curr, 0);
+            const totalExpenses = Object.values(expenses).reduce((acc, curr) => acc + curr, 0);
+            const totalWithheldTax = Object.values(withheldTaxes).reduce((acc, curr) => acc + curr, 0);
+            const assessableIncome = Math.max(0, totalIncome - totalExpenses);
+
+            const beforeCalc = calculateTaxScenario(assessableIncome, totalIncome, totalWithheldTax, beforeDeductions, beforeDonations);
+            const afterCalc = calculateTaxScenario(assessableIncome, totalIncome, totalWithheldTax, afterDeductions, afterDonations);
+            const taxSaving = beforeCalc.totalTax - afterCalc.totalTax;
+
+            const getHighestBracketIndex = (bracketTaxes, netIncome) => {
+                if (netIncome <= 0) return 0;
+                let highestIdx = 0;
+                for (let i = 0; i < bracketTaxes.length; i++) {
+                    if (bracketTaxes[i].tax > 0 || (i === 0 && netIncome > 0)) highestIdx = i;
+                }
+                return highestIdx;
+            };
+
+            const highestBeforeIdx = getHighestBracketIndex(beforeCalc.bracketTaxes, beforeCalc.finalNetIncome);
+            const highestAfterIdx = getHighestBracketIndex(afterCalc.bracketTaxes, afterCalc.finalNetIncome);
+
+            const activeIncomes = [
+                { label: t.inc1Title, value: incomes.salary },
+                { label: t.inc2Title, value: incomes.commission },
+                { label: t.inc3Title, value: incomes.royalty },
+                { label: t.inc4Title, value: incomes.interest },
+                { label: t.inc5Title, value: incomes.rental },
+                { label: t.inc6Title, value: incomes.profession },
+                { label: t.inc7Title, value: incomes.contractor },
+                { label: t.inc8Title, value: incomes.others }
+            ].filter(item => item.value > 0);
+
+            const getDeductionLabel = (key) => {
+                const labels = {
+                    personal: t.deduc1, spouse: t.deduc2, children: t.deduc3, child2018: t.deduc3_1, parents: t.deduc4, disabled: t.deduc5, maternity: t.deduc6,
+                    lifeInsurance: t.deduc7, healthInsurance: t.deduc7_1, spouseLifeInsurance: t.deduc8, parentsHealth: t.deduc9,
+                    providentFund: t.deduc10, rmf: t.deduc11, pension: t.deduc12, nsf: t.deduc13, thaiesg: t.deduc18, thaiesgX: t.deduc19,
+                    socialSecurity: t.deduc14, mortgage: t.deduc15, political: t.deduc16, socialEnterprise: t.deduc17, artPurchase: t.deduc20, solarCell: t.deduc21,
+                    eduSport: t.deduc22, general: t.deduc23
+                };
+                return labels[key] ? labels[key].replace(/^[0-9.]+\s*/, '') : key;
+            };
+
+            const getDetailMaxLimit = (key) => {
+                const limits = {
+                    personal: 60000, spouse: 60000, parents: 120000, maternity: 60000,
+                    lifeInsurance: 100000, healthInsurance: 25000, spouseLifeInsurance: 10000, parentsHealth: 15000,
+                    providentFund: beforeCalc.maxPVD, rmf: beforeCalc.maxRMF, pension: beforeCalc.maxPension, nsf: 30000,
+                    thaiesg: Math.min(totalIncome * 0.30, 300000), thaiesgX: 50000,
+                    socialSecurity: 10500, mortgage: 100000, political: 10000, socialEnterprise: 100000, artPurchase: 100000, solarCell: 200000,
+                    eduSport: afterCalc.capped.maxEduDonation, general: afterCalc.capped.maxGeneralDonation
+                };
+                return limits[key] !== undefined ? limits[key] : Infinity;
+            };
+
+            const plannedDeductionsWithMax = [
+                ...Object.entries(afterDeductions).map(([k, v]) => ({ key: k, label: getDeductionLabel(k), value: v, before: beforeDeductions[k], max: getDetailMaxLimit(k) })),
+                ...Object.entries(afterDonations).map(([k, v]) => ({ key: k, label: getDeductionLabel(k), value: (k === 'eduSport' ? v*2 : v), before: (k === 'eduSport' ? beforeDonations[k]*2 : beforeDonations[k]), max: getDetailMaxLimit(k) }))
+            ].filter(item => item.value > 0 || item.before > 0);
+
+            const rawAnalysisRows = [
+                { label: t.deduc2.replace(/^[0-9.]+\s*/, ''), max: 60000, remaining: Math.max(0, 60000 - afterDeductions.spouse) },
+                { label: t.deduc4.replace(/^[0-9.]+\s*/, ''), max: 120000, remaining: Math.max(0, 120000 - afterDeductions.parents) },
+                { label: t.deduc6.replace(/^[0-9.]+\s*/, ''), max: 60000, remaining: Math.max(0, 60000 - afterDeductions.maternity) },
+                { label: t.deduc8.replace(/^[0-9.]+\s*/, ''), max: 10000, remaining: Math.max(0, 10000 - afterDeductions.spouseLifeInsurance) },
+                { label: t.deduc9.replace(/^[0-9.]+\s*/, ''), max: 15000, remaining: Math.max(0, 15000 - afterDeductions.parentsHealth) },
+                { label: t.analysisGroupLifeHealth, max: 100000, remaining: Math.max(0, 100000 - (afterDeductions.lifeInsurance + afterDeductions.healthInsurance)) },
+                { label: t.analysisSelfHealth, max: 25000, remaining: Math.max(0, 25000 - afterDeductions.healthInsurance) },
+                { label: t.analysisGroupRetirement, max: 500000, remaining: Math.max(0, 500000 - afterCalc.sumRetirementRaw) },
+                { label: t.analysisPVD, max: beforeCalc.maxPVD, remaining: Math.max(0, beforeCalc.maxPVD - afterDeductions.providentFund) },
+                { label: t.analysisRMF, max: beforeCalc.maxRMF, remaining: Math.max(0, beforeCalc.maxRMF - afterDeductions.rmf) },
+                { label: t.analysisPension, max: beforeCalc.maxPension, remaining: Math.max(0, beforeCalc.maxPension - afterDeductions.pension) },
+                { label: t.analysisThaiESG, max: Math.min(totalIncome * 0.30, 300000), remaining: Math.max(0, Math.min(totalIncome * 0.30, 300000) - afterDeductions.thaiesg) },
+                { label: t.analysisThaiESGX, max: 50000, remaining: Math.max(0, 50000 - afterDeductions.thaiesgX) },
+                { label: t.analysisMortgage, max: 100000, remaining: Math.max(0, 100000 - afterDeductions.mortgage) },
+                { label: t.analysisPolitical, max: 10000, remaining: Math.max(0, 10000 - afterDeductions.political) },
+                { label: t.analysisSE, max: 100000, remaining: Math.max(0, 100000 - afterDeductions.socialEnterprise) },
+                { label: t.analysisArt, max: 100000, remaining: Math.max(0, 100000 - afterDeductions.artPurchase) },
+                { label: t.analysisSolar, max: 200000, remaining: Math.max(0, 200000 - afterDeductions.solarCell) },
+                { label: t.analysisEduDonation, max: afterCalc.capped.maxEduDonation, remaining: Math.max(0, afterCalc.capped.maxEduDonation - (afterDonations.eduSport * 2)) },
+                { label: t.analysisGeneralDonation, max: afterCalc.capped.maxGeneralDonation, remaining: Math.max(0, afterCalc.capped.maxGeneralDonation - afterDonations.general) },
+            ];
+            const analysisRows = rawAnalysisRows.filter(row => row.remaining > 0);
+
+            // ฟังก์ชันถ่ายภาพและเซฟเป็นรูปภาพ (PNG)
+            const handlePrintPreviewImage = () => {
+                // ตรวจสอบว่าไลบรารีโหลดเสร็จหรือยัง โดยเช็คจาก html2pdf ที่มี html2canvas ซ่อนอยู่ข้างใน
+                if(!window.html2pdf) {
+                    alert("System is still loading dependencies. Please try again.");
+                    return;
+                }
+                
+                const element = document.getElementById('pdf-paper-content');
+                if(!element) return;
+
+                // 1. เปลี่ยนฟอนต์เป็น Tahoma เฉพาะตอนถ่าย เพื่อกันสระลอย
+                const originalFontFamily = element.style.fontFamily;
+                element.style.fontFamily = "'Tahoma', 'Arial', sans-serif";
+                const allTextNodes = element.querySelectorAll('*');
+                const originalStyles = new Map();
+                
+                allTextNodes.forEach(node => {
+                    originalStyles.set(node, node.style.fontFamily);
+                    node.style.fontFamily = "'Tahoma', 'Arial', sans-serif";
+                });
+                
+                // ปุ่มจะเป็นสถานะกดไม่ได้ชั่วคราว
+                const btn = document.getElementById('btn-download-pdf');
+                if(btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Generating Image...';
+                }
+
+                // 2. ให้เวลาบราวเซอร์สลับฟอนต์นิดนึง แล้วค่อยแชะด้วย html2canvas โดยตรง
+                setTimeout(() => {
+                    // html2pdf.js มี html2pdf.Worker.prototype.html2canvas อยู่ข้างใต้ 
+                    // แต่เราสามารถเข้าถึงไลบรารีหลักคือ html2canvas ได้ตรงๆ (ถ้าถูกโหลดมาแบบ bundle)
+                    
+                    // เพื่อความชัวร์ที่สุดเวลาเราจะโหลดเป็นรูป เราจะใช้วิธีเรียกไลบรารี html2canvas (ที่มีอยู่ใน html2pdf bundle) 
+                    // แต่เนื่องจากมันถูกแพ็กมา เราจะใช้วิธีสั่งให้ html2pdf ประมวลผลแค่ถึงขั้นได้ canvas พอ
+                    
+                    window.html2pdf().set({
+                        margin:       0,
+                        filename:     'MCDJTaxPlanner_Summary.png', // เปลี่ยนเป็น png/jpeg ไม่มีผลกับ html2canvas โดยตรง
+                        html2canvas:  { 
+                            scale: 2,  // ถ่ายภาพชัด 2 เท่า (เหมือน Retina display)
+                            useCORS: true,
+                            letterRendering: true, 
+                            windowWidth: 1122
+                        }
+                    }).from(element).outputImg('img').then((imgElement) => {
+                        // เมื่อ html2pdf แปลงเป็น tag <img> สำเร็จ เราจะดึง src (base64 data) ของมันมาเซฟ
+                        const link = document.createElement('a');
+                        link.download = 'MCDJTaxPlanner_Summary.png'; // ไฟล์จะเป็น .png
+                        link.href = imgElement.src;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        
+                        // คืนค่าฟอนต์เดิม
+                        element.style.fontFamily = originalFontFamily;
+                        allTextNodes.forEach(node => {
+                            node.style.fontFamily = originalStyles.get(node) || '';
+                        });
+                        
+                        if(btn) {
+                            btn.disabled = false;
+                            btn.innerHTML = `<i class="fas fa-image mr-2"></i> ${t.previewPDFBtn}`;
+                        }
+                    }).catch(err => {
+                        console.error("Image Export Error: ", err);
+                        element.style.fontFamily = originalFontFamily;
+                        allTextNodes.forEach(node => {
+                            node.style.fontFamily = originalStyles.get(node) || '';
+                        });
+                        if(btn) {
+                            btn.disabled = false;
+                            btn.innerHTML = `<i class="fas fa-image mr-2"></i> ${t.previewPDFBtn}`;
+                        }
+                    });
+                }, 300);
+            };
+
+            const renderContent = () => {
+                return (
+                    <div className="space-y-6 w-full">
+                        {/* 1. Hero Banner */}
+                        <div className="avoid-page-break w-full mb-6 bg-white">
+                            <div className="hero-gradient rounded-[2rem] p-10 md:p-14 text-white shadow-lg relative overflow-hidden flex flex-col justify-center min-h-[300px]">
+                                <div className="relative z-10 max-w-2xl">
+                                    <h1 className="text-4xl md:text-[4rem] font-medium text-white mb-4 leading-tight font-poppins tracking-tighter">{t.taxSavedTitle}</h1>
+                                    <p className="text-white/80 text-sm md:text-base font-light mb-8 max-w-md">{t.taxSavedDesc}</p>
+                                    
+                                    <div className="inline-block bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-6 shadow-sm">
+                                        <div className="text-white/70 text-xs font-bold uppercase tracking-widest mb-1">{t.youWillSave}</div>
+                                        <div className="text-4xl md:text-[3.5rem] font-bold text-white tracking-tighter leading-none flex items-center">
+                                            <span className="text-2xl mr-2 text-white/50 font-light">฿</span> 
+                                            {formatNumber(taxSaving)}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 2. Active Incomes & FA */}
+                        <div className="grid grid-cols-2 gap-6 avoid-page-break mb-6 bg-white">
+                            <div className="bg-white p-6 sm:p-8 flex flex-col h-full rounded-[2rem] shadow-sm border border-gray-100">
+                                <h3 className="font-bold text-gray-900 text-lg mb-4 border-b border-gray-100 pb-3">{t.incomeSourcesTitle}</h3>
+                                <div className="space-y-3 flex-grow pr-2">
+                                    {activeIncomes.length > 0 ? activeIncomes.map((item, idx) => (
+                                        <div key={idx} className="flex justify-between items-center text-sm border-b border-gray-50 pb-2 last:border-0 w-full">
+                                            <span className="text-gray-600">{item.label.split(' ')[0]} {item.label.substring(item.label.indexOf(' ')+1)}</span>
+                                            <span className="font-inter font-medium text-gray-900">{formatNumber(item.value)}</span>
+                                        </div>
+                                    )) : <div className="text-sm text-gray-400 italic text-center py-4">ไม่มีข้อมูลรายได้</div>}
+                                </div>
+                            </div>
+                            
+                            <div className={`bg-white p-6 sm:p-8 flex flex-col h-full rounded-[2rem] shadow-sm border border-gray-100 ${faRecommendation ? 'border-l-4 border-l-gray-900' : ''}`}>
+                                <h3 className="font-bold text-gray-900 text-lg mb-4 border-b border-gray-100 pb-3 flex items-center"><i className="fas fa-comment-dots text-[#D4FF00] mr-2 text-xl drop-shadow-sm"></i> {t.faRecommendationTitle}</h3>
+                                {faRecommendation ? (
+                                    <p className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed bg-gray-50 p-4 rounded-xl border border-gray-100 flex-grow font-prompt w-full">{faRecommendation}</p>
+                                ) : (
+                                    <div className="flex-grow flex items-center justify-center text-gray-400 text-sm font-light italic w-full">ไม่มีคำแนะนำเพิ่มเติม</div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* 3. 3 Columns Comparison */}
+                        <div className="grid grid-cols-3 gap-6 avoid-page-break mb-6 bg-white">
+                            {/* Income */}
+                            <div className="bg-white p-6 sm:p-8 flex flex-col rounded-[2rem] shadow-sm border border-gray-100">
+                                <div className="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
+                                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-700"><i className="fas fa-wallet"></i></div>
+                                    <h3 className="font-bold text-gray-900 text-lg">{t.incomeCardTitle}</h3>
+                                </div>
+                                <div className="space-y-4 flex-grow w-full">
+                                    <div className="flex justify-between items-center text-sm w-full"><span className="text-gray-500">{t.totalIncomeLabel}</span><span className="font-inter font-medium text-gray-900">{formatNumber(totalIncome)}</span></div>
+                                    <div className="flex justify-between items-center text-sm w-full"><span className="text-gray-500">{t.expensesLabel}</span><span className="font-inter font-medium text-red-500">- {formatNumber(totalExpenses)}</span></div>
+                                    <div className="pt-4 border-t border-gray-100 flex justify-between items-center w-full"><span className="text-xs font-bold text-gray-500 uppercase">{t.summaryAssessable}</span><span className="font-inter font-bold text-xl text-gray-900">{formatNumber(assessableIncome)}</span></div>
+                                </div>
+                            </div>
+
+                            {/* Current */}
+                            <div className="bg-white p-6 sm:p-8 flex flex-col rounded-[2rem] shadow-sm border-t-4 border-t-gray-400 border-x border-b border-gray-100">
+                                <div className="flex items-center gap-3 mb-6 border-b border-gray-100 pb-4">
+                                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-500"><i className="fas fa-chart-line"></i></div>
+                                    <h3 className="font-bold text-gray-700 text-lg">{t.currentCardTitle}</h3>
+                                </div>
+                                <div className="space-y-4 flex-grow w-full">
+                                    <div className="flex justify-between items-center text-sm w-full"><span className="text-gray-500">{t.summaryTotalDeductions}</span><span className="font-inter font-medium text-gray-900">- {formatNumber(beforeCalc.totalDeductions + beforeCalc.actualEduDonation + beforeCalc.actualGeneralDonation)}</span></div>
+                                    <div className="flex justify-between items-center text-sm w-full"><span className="text-gray-500">{t.summaryNetIncome}</span><span className="font-inter font-medium text-gray-900">{formatNumber(beforeCalc.finalNetIncome)}</span></div>
+                                    <div className="pt-4 border-t border-gray-100 flex justify-between items-end w-full"><span className="text-xs font-bold text-gray-500 uppercase">{t.currentTaxTotal}</span><span className="font-inter font-bold text-2xl text-gray-900">{formatNumber(beforeCalc.totalTax)}</span></div>
+                                </div>
+                                <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center text-xs w-full">
+                                    <span className="text-gray-500 uppercase">{t.withheldPaid}</span>
+                                    <span className="font-inter font-medium text-gray-900">{formatNumber(totalWithheldTax)}</span>
+                                </div>
+                                <div className={`mt-3 flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-bold text-center w-full ${beforeCalc.taxPayableOrRefundable > 0 ? 'bg-red-50 text-red-600 border-red-200' : 'bg-gray-50 text-gray-700 border-gray-200'}`}>
+                                    <span className="uppercase tracking-widest text-[9px] mb-1 opacity-80">{t.statusCurrent}</span>
+                                    <span>{beforeCalc.taxPayableOrRefundable > 0 ? t.payMore + ' ' : t.getRefund + ' '} <span className="font-inter text-sm">{formatNumber(Math.abs(beforeCalc.taxPayableOrRefundable))}</span></span>
+                                </div>
+                            </div>
+
+                            {/* Plan */}
+                            <div className="bg-[#111111] p-6 sm:p-8 flex flex-col rounded-[2rem] shadow-md border-t-4 border-t-[#D4FF00]">
+                                <div className="flex items-center gap-3 mb-6 border-b border-gray-800 pb-4">
+                                    <div className="w-10 h-10 bg-[#D4FF00]/10 rounded-full flex items-center justify-center text-[#D4FF00]"><i className="fas fa-rocket"></i></div>
+                                    <h3 className="font-bold text-white text-lg">{t.planCardTitle}</h3>
+                                </div>
+                                <div className="space-y-4 flex-grow w-full">
+                                    <div className="flex justify-between items-center text-sm w-full"><span className="text-gray-400">{t.summaryTotalDeductions}</span><span className="font-inter font-medium text-white">- {formatNumber(afterCalc.totalDeductions + afterCalc.actualEduDonation + afterCalc.actualGeneralDonation)}</span></div>
+                                    <div className="flex justify-between items-center text-sm w-full"><span className="text-gray-400">{t.summaryNetIncome}</span><span className="font-inter font-medium text-white">{formatNumber(afterCalc.finalNetIncome)}</span></div>
+                                    <div className="pt-4 border-t border-gray-800 flex justify-between items-end w-full"><span className="text-xs font-bold text-gray-400 uppercase">{t.planTaxTotal}</span><span className="font-inter font-bold text-2xl text-[#D4FF00]">{formatNumber(afterCalc.totalTax)}</span></div>
+                                </div>
+                                <div className="mt-4 pt-4 border-t border-gray-800 flex justify-between items-center text-xs w-full">
+                                    <span className="text-gray-400 uppercase">{t.withheldPaid}</span>
+                                    <span className="font-inter font-medium text-white">{formatNumber(totalWithheldTax)}</span>
+                                </div>
+                                <div className={`mt-3 flex flex-col items-center justify-center p-3 rounded-xl border text-xs font-bold text-center w-full ${afterCalc.taxPayableOrRefundable > 0 ? 'bg-red-50 text-red-600 border-red-200' : 'bg-[#1a1a1a] text-[#D4FF00] border border-[#D4FF00]/50 shadow-[0_0_10px_rgba(212,255,0,0.15)]'}`}>
+                                    <span className="uppercase tracking-widest text-[9px] mb-1 opacity-70">{t.statusPlan}</span>
+                                    <span>{afterCalc.taxPayableOrRefundable > 0 ? t.payMore + ' ' : t.getRefund + ' '} <span className="font-inter text-sm">{formatNumber(Math.abs(afterCalc.taxPayableOrRefundable))}</span></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 4. Full 8-tier Tax Brackets Table */}
+                        <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-sm border border-gray-100 avoid-page-break w-full mb-6">
+                            <h3 className="font-medium text-gray-900 text-lg mb-6 border-b border-gray-100 pb-3 flex items-center font-poppins">
+                                <i className="fas fa-layer-group text-gray-900 mr-2"></i> {t.taxBracketsHitTitle}
+                            </h3>
+                            
+                            {highestBeforeIdx > highestAfterIdx && (
+                                <div className="mb-6 bg-gray-100 text-gray-700 py-3 px-4 rounded-xl text-center text-sm font-medium border border-gray-200 flex items-center justify-center font-prompt w-fit mx-auto">
+                                    <i className="fas fa-level-down-alt mr-2"></i> 
+                                    {t.bracketDownMsg} {beforeCalc.bracketTaxes[highestBeforeIdx].rate * 100}% เป็น {afterCalc.bracketTaxes[highestAfterIdx].rate * 100}%
+                                </div>
+                            )}
+
+                            <div className="w-full">
+                                <table className="w-full text-center text-sm font-inter">
+                                    <thead>
+                                        <tr className="border-b border-gray-200 text-gray-500 text-xs uppercase tracking-wider font-semibold">
+                                            <th className="text-left py-3 px-2 w-[40%]">{t.netIncomeStep}</th>
+                                            <th className="py-3 px-2 w-[20%]">{t.taxRate}</th>
+                                            <th className="text-right py-3 px-2 w-[20%]">{t.taxBefore}</th>
+                                            <th className="text-right py-3 px-2 w-[20%] text-gray-900">{t.taxAfter}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="space-y-1">
+                                        {beforeCalc.bracketTaxes.map((beforeBracket, i) => {
+                                            const afterBracket = afterCalc.bracketTaxes[i];
+                                            const minText = i === 0 ? "0" : formatNumber(beforeBracket.min).replace(".00", "");
+                                            const maxText = beforeBracket.max === Infinity ? t.infinity : formatNumber(beforeBracket.max).replace(".00", "");
+                                            const rangeText = beforeBracket.max === Infinity ? `${minText} ${maxText}` : `${minText} - ${maxText}`;
+                                            const isActive = beforeBracket.tax > 0 || afterBracket.tax > 0;
+                                            
+                                            return (
+                                                <tr key={i} className={`border-b border-gray-50 ${isActive ? 'bg-gray-50' : 'hover:bg-gray-50 transition-colors'}`}>
+                                                    <td className={`text-left py-3 px-2 tracking-tight ${isActive ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
+                                                        {rangeText}
+                                                    </td>
+                                                    <td className={`py-3 px-2 font-medium ${isActive ? 'text-gray-900' : 'text-gray-400'}`}>
+                                                        {beforeBracket.rate === 0 ? t.exempt : `${beforeBracket.rate * 100}%`}
+                                                    </td>
+                                                    <td className={`text-right py-3 px-2 ${beforeBracket.tax > 0 ? 'text-gray-600 font-medium' : 'text-gray-400'}`}>
+                                                        {formatNumber(beforeBracket.tax)}
+                                                    </td>
+                                                    <td className={`text-right py-3 px-2 ${afterBracket.tax > 0 ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>
+                                                        {formatNumber(afterBracket.tax)}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* 5. Planned Deductions Detail (4 Columns) */}
+                        <div className="bg-white p-6 sm:p-8 rounded-[2rem] shadow-sm border border-gray-100 avoid-page-break w-full mb-6">
+                            <h3 className="font-bold text-gray-900 text-lg mb-6 border-b border-gray-100 pb-3">{t.plannedDeductionsTitle}</h3>
+                            <div className="w-full">
+                                <table className="w-full text-sm font-inter">
+                                    <thead>
+                                        <tr className="border-b border-gray-200 text-gray-500 text-[10px] uppercase tracking-widest bg-white">
+                                            <th className="text-left py-3 px-2 font-semibold w-[40%]">{t.summaryItemLabel}</th>
+                                            <th className="text-right py-3 px-2 font-semibold w-[20%]">{t.beforePlan}</th>
+                                            <th className="text-right py-3 px-2 text-gray-900 font-semibold w-[20%]">{t.targetPlan}</th>
+                                            <th className="text-right py-3 px-2 font-semibold w-[20%]">{t.rightsMax}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="space-y-1">
+                                        {plannedDeductionsWithMax.length > 0 ? plannedDeductionsWithMax.map((item, idx) => {
+                                            const maxText = item.max === Infinity ? '-' : formatNumber(item.max);
+                                            return (
+                                                <tr key={idx} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                                                    <td className="py-3 px-2 text-gray-800 font-prompt pr-2" title={item.label}>{item.label}</td>
+                                                    <td className="text-right py-3 px-2 text-gray-500">{formatNumber(item.before)}</td>
+                                                    <td className="text-right py-3 px-2 text-gray-900 font-medium">{formatNumber(item.value)}</td>
+                                                    <td className="text-right py-3 px-2 text-gray-400 text-xs">{maxText}</td>
+                                                </tr>
+                                            );
+                                        }) : (
+                                            <tr><td colSpan="4" className="text-sm text-gray-400 italic text-center py-4">ไม่มีข้อมูลการวางแผนลดหย่อน</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* 6. Unused & Available Deductions Table */}
+                        {analysisRows.length > 0 && (
+                            <div className="bg-white p-6 sm:p-10 rounded-[2rem] shadow-sm border border-[#D4FF00]/30 relative avoid-page-break w-full mb-6">
+                                <div className="absolute top-0 left-0 w-2 h-full bg-[#D4FF00] rounded-l-[2rem]"></div>
+                                <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center pl-2 font-prompt">
+                                    <i className="fas fa-chart-pie text-[#A3C400] mr-3"></i> {t.rightsAnalysis}
+                                </h3>
+                                <div className="w-full">
+                                    <table className="w-full text-sm font-inter">
+                                        <thead>
+                                            <tr className="border-b border-gray-200 text-gray-500 text-[10px] uppercase tracking-widest bg-gray-50">
+                                                <th className="text-left py-3 px-4 font-semibold rounded-tl-xl w-[50%]">{t.rightsItem}</th>
+                                                <th className="text-right py-3 px-4 font-semibold w-[25%]">{t.rightsMax}</th>
+                                                <th className="text-right py-3 px-4 text-gray-900 font-semibold w-[25%] rounded-tr-xl">{t.rightsRemaining}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="space-y-1">
+                                            {analysisRows.map((row, idx) => (
+                                                <tr key={idx} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                                                    <td className="py-3 px-4 text-gray-800 font-prompt">{row.label}</td>
+                                                    <td className="text-right py-3 px-4 text-gray-400 text-xs">{formatNumber(row.max)}</td>
+                                                    <td className="text-right py-3 px-4">
+                                                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#D4FF00]/10 text-[#7a9300] border border-[#D4FF00]/30 shadow-sm whitespace-nowrap">
+                                                            + {formatNumber(row.remaining)}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                );
+            };
+
+            return (
+                <div className="animate-fade-in pb-20 relative">
+                    
+                    {/* เราซ่อนเนื้อหาหลักที่จะแสดงบนเว็บเป็น Layout ธรรมดา */}
+                    <div className="space-y-6 w-full max-w-[1100px] mx-auto">
+                        {renderContent()}
+                    </div>
+
+                    {/* ปุ่ม Navigation & Export */}
+                    <div className="flex justify-center items-center gap-4 pt-10">
+                        <button onClick={onPrev} className="bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 font-bold py-3 px-8 rounded-full transition-all flex items-center group text-sm shadow-sm">
+                            <i className="fas fa-arrow-left mr-3 opacity-50 group-hover:-translate-x-1 transition-transform"></i> {t.backBtn}
+                        </button>
+                        
+                        <button 
+                            onClick={() => setShowPreview(true)}
+                            className="bg-gray-900 hover:bg-black text-white font-bold py-3 px-8 rounded-full transition-all flex items-center group text-sm shadow-sm"
+                        >
+                            <i className="fas fa-file-pdf mr-3 text-[#D4FF00]"></i> {t.showPreviewBtn}
+                        </button>
+                    </div>
+
+                    {/* Preview Modal: จำลองกระดาษ A4 แนวนอน (1122px) เป๊ะๆ */}
+                    {showPreview && (
+                        <div className="pdf-preview-container custom-scrollbar">
+                            <div className="w-full bg-[#111111] p-4 flex justify-between items-center sticky top-0 z-50">
+                                <div className="text-white font-bold font-poppins flex items-center">
+                                    <i className="fas fa-image text-[#D4FF00] mr-2"></i> Print Preview <span className="text-xs text-gray-400 font-prompt ml-3 font-normal">(ขนาดรูปภาพ 1122px)</span>
+                                </div>
+                                <div className="flex gap-3">
+                                    <button onClick={() => setShowPreview(false)} className="bg-gray-800 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-full text-xs transition-colors">
+                                        {t.closePreviewBtn}
+                                    </button>
+                                    {/* เปลี่ยน onClick เป็น handlePrintPreviewImage และไอคอน */}
+                                    <button id="btn-download-pdf" onClick={handlePrintPreviewImage} className="bg-[#D4FF00] hover:bg-[#bce600] text-black font-bold py-2 px-6 rounded-full text-xs transition-colors shadow-[0_0_15px_rgba(212,255,0,0.3)]">
+                                        <i className="fas fa-image mr-2"></i> {t.previewPDFBtn}
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div className="mt-8 mb-20 flex justify-center w-full">
+                                {/* กล่องกระดาษรูปภาพ */}
+                                <div id="pdf-paper-content" className="pdf-paper">
+                                    {renderContent()}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [step, setStep] = useState(1);
+            const [lang, setLang] = useState('TH');
+            const [isLangOpen, setIsLangOpen] = useState(false);
+            const t = translations[lang];
+            
+            const [faRecommendation, setFaRecommendation] = useState('');
+            
+            const [incomes, setIncomes] = useState({
+                salary: 0, commission: 0, royalty: 0, interest: 0,
+                rental: 0, profession: 0, contractor: 0, others: 0
+            });
+            const [expenses, setExpenses] = useState({
+                salary: 0, commission: 0, royalty: 0, interest: 0, rental: 0, profession: 0, contractor: 0, others: 0
+            });
+            const [withheldTaxes, setWithheldTaxes] = useState({
+                salary: 0, commission: 0, royalty: 0, interest: 0, rental: 0, profession: 0, contractor: 0, others: 0
+            });
+
+            const initialDeductions = {
+                personal: 60000, spouse: 0, children: 0, child2018: 0, parents: 0, disabled: 0, maternity: 0,
+                lifeInsurance: 0, healthInsurance: 0, spouseLifeInsurance: 0, parentsHealth: 0,
+                providentFund: 0, rmf: 0, pension: 0, nsf: 0, thaiesg: 0, thaiesgX: 0,
+                socialSecurity: 0, mortgage: 0, political: 0, socialEnterprise: 0, artPurchase: 0, solarCell: 0
+            };
+            const initialDonations = { eduSport: 0, general: 0 };
+
+            const [beforeDeductions, setBeforeDeductions] = useState({ ...initialDeductions });
+            const [beforeDonations, setBeforeDonations] = useState({ ...initialDonations });
+            const [afterDeductions, setAfterDeductions] = useState({ ...initialDeductions });
+            const [afterDonations, setAfterDonations] = useState({ ...initialDonations });
+
+            const switchStep = (newStep) => {
+                setStep(newStep);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            };
+
+            const toggleLangDropdown = () => setIsLangOpen(!isLangOpen);
+            const selectLanguage = (selectedLang) => {
+                setLang(selectedLang);
+                setIsLangOpen(false);
+            };
+
+            const calculateTaxScenario = (assessableIncome, totalIncome, totalWithheldTax, deducs, dons) => {
+                const personal = deducs.personal || 0;
+                const spouse = Math.min(deducs.spouse || 0, 60000);
+                const children = (deducs.children || 0) + (deducs.child2018 || 0); 
+                const parents = Math.min(deducs.parents || 0, 120000); 
+                const disabled = deducs.disabled || 0; 
+                const maternity = Math.min(deducs.maternity || 0, 60000);
+
+                const healthIns = Math.min(deducs.healthInsurance || 0, 25000);
+                const lifeInsRaw = Math.min(deducs.lifeInsurance || 0, 100000);
+                const combinedLifeHealth = Math.min(lifeInsRaw + healthIns, 100000);
+                const spouseLife = Math.min(deducs.spouseLifeInsurance || 0, 10000);
+                const parentsHealth = Math.min(deducs.parentsHealth || 0, 15000);
+
+                const maxPVD = totalIncome * 0.15;
+                const pvd = Math.min(deducs.providentFund || 0, maxPVD);
+                const maxRMF = totalIncome * 0.30;
+                const rmf = Math.min(deducs.rmf || 0, maxRMF);
+                const maxPension = Math.min(totalIncome * 0.15, 200000);
+                const pension = Math.min(deducs.pension || 0, maxPension);
+                const nsf = Math.min(deducs.nsf || 0, 30000);
+                const sumRetirementRaw = (deducs.providentFund || 0) + (deducs.rmf || 0) + (deducs.pension || 0) + (deducs.nsf || 0);
+                const cappedRetirement = Math.min(sumRetirementRaw, 500000);
+
+                const thaiesg = Math.min(deducs.thaiesg || 0, totalIncome * 0.30, 300000);
+                const thaiesgX = Math.min(deducs.thaiesgX || 0, 50000); 
+
+                const socialSec = Math.min(deducs.socialSecurity || 0, 10500);
+                const mortgage = Math.min(deducs.mortgage || 0, 100000);
+                const political = Math.min(deducs.political || 0, 10000);
+                const socialEnterprise = Math.min(deducs.socialEnterprise || 0, 100000);
+                const artPurchase = Math.min(deducs.artPurchase || 0, 100000);
+                const solarCell = Math.min(deducs.solarCell || 0, 200000);
+
+                const rawTotalDeductions = Object.values(deducs).reduce((acc, curr) => acc + curr, 0);
+                const totalDeductions = rawTotalDeductions - sumRetirementRaw + cappedRetirement;
+
+                const netIncomeBeforeDonations = Math.max(0, assessableIncome - totalDeductions);
+                
+                const maxEduDonation = netIncomeBeforeDonations * 0.10;
+                const actualEduDonation = Math.min((dons.eduSport || 0) * 2, maxEduDonation);
+                
+                const netIncomeAfterEdu = netIncomeBeforeDonations - actualEduDonation;
+                const maxGeneralDonation = netIncomeAfterEdu * 0.10;
+                const actualGeneralDonation = Math.min(dons.general || 0, maxGeneralDonation);
+                
+                const finalNetIncome = Math.max(0, netIncomeAfterEdu - actualGeneralDonation);
+                const taxResult = calculateTax(finalNetIncome);
+                const taxPayableOrRefundable = taxResult.totalTax - totalWithheldTax;
+
+                return {
+                    capped: { maxEduDonation, maxGeneralDonation },
+                    sumRetirementRaw, totalDeductions, actualEduDonation, actualGeneralDonation, finalNetIncome,
+                    totalTax: taxResult.totalTax, bracketTaxes: taxResult.bracketTaxes, taxPayableOrRefundable,
+                    maxRMF, maxPension, maxPVD
+                };
+            };
+
+            return (
+                <div className="flex-grow flex flex-col font-prompt relative z-10 w-full">
+                    <header className="bg-white/80 backdrop-blur-xl border-b border-gray-200 sticky top-0 z-50 shadow-sm">
+                        <div className="container mx-auto px-6 py-4 flex justify-between items-center max-w-7xl">
+                            <div className="flex items-center space-x-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 rounded-full bg-black flex items-center justify-center shadow-md shrink-0">
+                                        <div className="w-3.5 h-3.5 rounded-full bg-[#D4FF00]"></div>
+                                    </div>
+                                    <h1 className="text-xl sm:text-2xl font-medium tracking-normal text-gray-900 font-poppins">{t.appTitle}</h1>
+                                </div>
+                            </div>
+                            
+                            <div className="flex items-center space-x-3">
+                                <div className="hidden sm:flex bg-gray-100 rounded-full p-1 border border-gray-200 shadow-inner">
+                                    <button onClick={() => switchStep(1)} className={`px-5 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-all ${step === 1 ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>{t.step1}</button>
+                                    <button onClick={() => switchStep(2)} className={`px-5 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-all ${step === 2 ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>{t.step2}</button>
+                                    <button onClick={() => switchStep(3)} className={`px-5 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-all ${step === 3 ? 'bg-[#111111] text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}>{t.step3}</button>
+                                </div>
+
+                                <div className="relative z-50 ml-2">
+                                    <button onClick={toggleLangDropdown} className="bg-white border border-gray-200 hover:border-gray-300 text-gray-700 px-4 py-2 rounded-full flex items-center text-xs font-bold transition-all shadow-sm">
+                                        <i className="fas fa-globe mr-2 text-gray-400"></i> {lang} <i className="fas fa-chevron-down ml-2 text-[10px] text-gray-400"></i>
+                                    </button>
+                                    {isLangOpen && (
+                                        <div className="absolute right-0 mt-2 w-36 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50">
+                                            {['TH', 'EN', 'ZH', 'JA', 'KO'].map((l) => (
+                                                <button key={l} onClick={() => selectLanguage(l)} className={`w-full text-left px-4 py-3 text-xs font-medium hover:bg-gray-50 transition-colors ${lang === l ? 'text-gray-900 font-bold bg-gray-50' : 'text-gray-600'}`}>
+                                                    {l === 'TH' ? '🇹🇭 ไทย' : l === 'EN' ? '🇬🇧 English' : l === 'ZH' ? '🇨🇳 中文' : l === 'JA' ? '🇯🇵 日本語' : '🇰🇷 한국어'}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="container mx-auto mt-8 px-4 sm:px-6 lg:px-8 max-w-7xl flex-grow pb-12">
+                        {step === 1 && (
+                            <IncomePage 
+                                incomes={incomes} setIncomes={setIncomes}
+                                expenses={expenses} setExpenses={setExpenses}
+                                withheldTaxes={withheldTaxes} setWithheldTaxes={setWithheldTaxes}
+                                onNext={() => switchStep(2)} t={t}
+                            />
+                        )}
+                        {step === 2 && (
+                            <DeductionsPage 
+                                incomes={incomes} expenses={expenses} withheldTaxes={withheldTaxes}
+                                beforeDeductions={beforeDeductions} setBeforeDeductions={setBeforeDeductions}
+                                afterDeductions={afterDeductions} setAfterDeductions={setAfterDeductions}
+                                beforeDonations={beforeDonations} setBeforeDonations={setBeforeDonations}
+                                afterDonations={afterDonations} setAfterDonations={setAfterDonations}
+                                faRecommendation={faRecommendation} setFaRecommendation={setFaRecommendation}
+                                calculateTaxScenario={calculateTaxScenario}
+                                onPrev={() => switchStep(1)} onNext={() => switchStep(3)} t={t}
+                            />
+                        )}
+                        {step === 3 && (
+                            <SummaryPage 
+                                incomes={incomes} expenses={expenses} withheldTaxes={withheldTaxes}
+                                beforeDeductions={beforeDeductions} afterDeductions={afterDeductions}
+                                beforeDonations={beforeDonations} afterDonations={afterDonations}
+                                faRecommendation={faRecommendation} calculateTaxScenario={calculateTaxScenario}
+                                onPrev={() => switchStep(2)} t={t}
+                            />
+                        )}
+                    </main>
+
+                    <footer className="mt-auto py-6 border-t border-gray-200 bg-white/50 backdrop-blur-sm">
+                        <div className="container mx-auto px-6 text-center max-w-7xl">
+                            <p className="text-xs text-gray-400 font-inter tracking-wide">
+                                &copy; {new Date().getFullYear()} <span className="font-semibold text-gray-500">MCDJ WEALTH ADVISOR Co.,Ltd.</span> All rights reserved. 
+                                <br className="sm:hidden" />
+                                <span className="hidden sm:inline"> | </span> 
+                                <span className="font-prompt">สงวนลิขสิทธิ์ ห้ามทำซ้ำ ดัดแปลง หรือลอกเลียนแบบ</span>
+                            </p>
+                        </div>
+                    </footer>
+                </div>
+            );
+        };
+
+        class ErrorBoundary extends React.Component {
+            constructor(props) { super(props); this.state = { hasError: false }; }
+            static getDerivedStateFromError(error) { return { hasError: true }; }
+            render() {
+                if (this.state.hasError) return <div className="text-gray-900 text-center p-10 mt-20 text-xl font-poppins">Something went wrong. Please reload.</div>;
+                return this.props.children;
+            }
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<ErrorBoundary><App /></ErrorBoundary>);
+    </script>
+</body>
+</html>
